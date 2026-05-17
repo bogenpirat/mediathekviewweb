@@ -50,6 +50,28 @@ export class SearchEngine {
     return (response.body.aggregations.channels as TermsAggregation).buckets.map((bucket) => String(bucket.key));
   }
 
+  async getTopics(channel?: string): Promise<string[]> {
+    const filter = channel ? { term: { "channel.keyword": channel } } : undefined;
+    const response = await this.client.search({
+      index: OPENSEARCH_INDEX,
+      size: 0,
+      body: {
+        ...(filter ? { query: { bool: { filter } } } : {}),
+        aggs: {
+          topics: {
+            terms: {
+              field: "topic.keyword",
+              size: 10000,
+              order: { _key: "asc" }
+            }
+          }
+        }
+      }
+    });
+
+    return (response.body.aggregations.topics as TermsAggregation).buckets.map((bucket) => String(bucket.key));
+  }
+
   async getDescription(id: string): Promise<string> {
     try {
       const response = await this.client.get({ index: OPENSEARCH_INDEX, id });

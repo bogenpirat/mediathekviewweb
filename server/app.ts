@@ -129,6 +129,24 @@ import { VALKEY_KEYS } from './keys';
     }
   });
 
+  app.get('/api/topics', async (req, res) => {
+    const channel = req.query.channel as string | undefined;
+    try {
+      const topics = await searchEngine.getTopics(channel);
+      res.json({
+        error: null,
+        topics: topics
+      });
+    }
+    catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      res.status(500).json({
+        error: errorMessage,
+        topics: null
+      });
+    }
+  });
+
   app.get('/api/content-length', async (req, res) => {
     const url = req.query.url as string;
 
