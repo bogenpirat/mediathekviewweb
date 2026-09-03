@@ -6,9 +6,10 @@
   import Icon from './Icon.svelte';
   import VideoActions from './VideoActions.svelte';
 
-  let { entry, onPlayVideo, isDetailsOpen, onToggleDetails } = $props<{
+  let { entry, onPlayVideo, onHostParty, isDetailsOpen, onToggleDetails } = $props<{
     entry: ResultEntry;
     onPlayVideo: (payload: VideoPayload) => void;
+    onHostParty: (payload: VideoPayload) => void;
     isDetailsOpen: boolean;
     onToggleDetails: (id: string) => void;
   }>();
@@ -34,7 +35,7 @@
   <td class="p-2 text-nowrap text-right">{formatDuration(entry.duration)}</td>
   <td class="p-2">
     <div class="grid grid-cols-[repeat(4,1fr)] gap-x-2">
-      <VideoActions {entry} {onPlayVideo} view="table-inline" />
+      <VideoActions {entry} {onPlayVideo} {onHostParty} view="table-inline" />
     </div>
   </td>
 </tr>
@@ -51,7 +52,7 @@
                 <p class="text-neutral-900/80 dark:text-neutral-50/80">{entry.description}</p>
               </div>
               <div class="shrink-0 w-full sm:w-auto border-t sm:border-t-0 sm:border-l border-gray-500/30 pt-4 sm:pt-0 sm:pl-4">
-                <VideoActions {entry} {onPlayVideo} view="drawer" {isDetailsOpen} />
+                <VideoActions {entry} {onPlayVideo} {onHostParty} view="drawer" {isDetailsOpen} />
               </div>
             </div>
           </div>

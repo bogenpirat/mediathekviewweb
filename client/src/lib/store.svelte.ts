@@ -12,6 +12,7 @@ function createAppState() {
   let currentPage = $state(0);
   let itemsPerPage = $state(15);
   let viewMode = $state<'grid' | 'list'>('grid');
+  let partyId = $state<string | undefined>(undefined);
 
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -117,6 +118,10 @@ function createAppState() {
 
     const page = parseInt(params['page'], 10);
     currentPage = !isNaN(page) ? page - 1 : 0;
+
+    // Party ids are hex, which also sidesteps parseURIHash truncating values that contain '='.
+    const party = params['party'];
+    partyId = (party && /^[0-9a-f]{1,32}$/.test(party)) ? party : undefined;
   }
 
   function handleHashChange() {
@@ -179,7 +184,8 @@ function createAppState() {
           future: future ? undefined : 'false',
           sortBy: sortBy === 'timestamp' ? undefined : sortBy,
           sortOrder: sortOrder === 'desc' ? undefined : sortOrder,
-          page: currentPage > 0 ? currentPage + 1 : undefined
+          page: currentPage > 0 ? currentPage + 1 : undefined,
+          party: partyId
         });
       });
 
@@ -225,6 +231,8 @@ function createAppState() {
     get itemsPerPage() { return itemsPerPage; },
     set itemsPerPage(value) { itemsPerPage = value; },
     get viewMode() { return viewMode; },
+    get partyId() { return partyId; },
+    set partyId(value) { partyId = value; },
 
     get loading() { return loading; },
     get error() { return error; },

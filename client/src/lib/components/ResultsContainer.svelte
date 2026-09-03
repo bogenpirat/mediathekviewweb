@@ -7,7 +7,7 @@
   import ResultCard from './ResultCard.svelte';
   import ResultTableRow from './ResultTableRow.svelte';
 
-  let { onPlayVideo } = $props<{ onPlayVideo: (payload: VideoPayload) => void }>();
+  let { onPlayVideo, onHostParty } = $props<{ onPlayVideo: (payload: VideoPayload) => void; onHostParty: (payload: VideoPayload) => void }>();
 
   let openEntryId = $state<string | null>(null);
 
@@ -87,7 +87,7 @@
     {#if appState.viewMode === 'grid'}
       <div class="space-y-4">
         {#each appState.results as entry (entry.id)}
-          <ResultCard {entry} {onPlayVideo} isDetailsOpen={openEntryId === entry.id} onToggleDetails={handleToggleDetails} />
+          <ResultCard {entry} {onPlayVideo} {onHostParty} isDetailsOpen={openEntryId === entry.id} onToggleDetails={handleToggleDetails} />
         {/each}
       </div>
     {:else}
@@ -124,7 +124,7 @@
           </thead>
           <tbody>
             {#each appState.results as entry (entry.id)}
-              <ResultTableRow {entry} {onPlayVideo} isDetailsOpen={openEntryId === entry.id} onToggleDetails={handleToggleDetails} />
+              <ResultTableRow {entry} {onPlayVideo} {onHostParty} isDetailsOpen={openEntryId === entry.id} onToggleDetails={handleToggleDetails} />
             {/each}
           </tbody>
         </table>

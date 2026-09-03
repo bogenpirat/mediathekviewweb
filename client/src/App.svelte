@@ -13,10 +13,12 @@
   import RssFeedDialog from '$lib/components/RssFeedDialog.svelte';
   import SearchBar from '$lib/components/SearchBar.svelte';
   import VideoPlayer from '$lib/components/VideoPlayer.svelte';
+  import WatchPartyDialog from '$lib/components/WatchPartyDialog.svelte';
   import { appState } from '$lib/store.svelte';
   import type { VideoPayload } from '$lib/types';
-  import { initializeAnalytics, trackEvent } from '$lib/utils';
-  import { onMount } from 'svelte';
+  import { initializeAnalytics, parseURIHash, trackEvent } from '$lib/utils';
+  import { partyVideoToVideoPayload, watchParty } from '$lib/watchParty.svelte';
+  import { onMount, untrack } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
 
   let cookieDialog: CookieDialog;
@@ -25,6 +27,7 @@
   let helpDialog: HelpDialog;
   let rssFeedDialog: RssFeedDialog;
   let castConsentDialog: CastConsentDialog;
+  let watchPartyDialog: WatchPartyDialog;
   let mainElement: HTMLElement;
   let legalDialog = $state<Dialog>();
 
@@ -32,6 +35,41 @@
   let pageToView = $state<'datenschutz' | 'impressum' | null>(null);
 
   const prefersDark = new MediaQuery('(prefers-color-scheme: dark)');
+
+  // The host owns which episode the party watches, so guests follow whatever video arrives.
+  $effect(() => {
+    const hostVideo = watchParty.hostVideo;
+
+    if (!hostVideo || watchParty.isHost) {
+      return;
+    }
+
+    if (untrack(() => videoToPlay?.url) !== hostVideo.url) {
+      videoToPlay = partyVideoToVideoPayload(hostVideo);
+    }
+  });
+
+  // Keep the party id in the URL hash so the invite link survives a reload and can be shared.
+  $effect(() => {
+    appState.partyId = watchParty.partyId ?? undefined;
+  });
+
+  async function hostParty(payload: VideoPayload) {
+    videoToPlay = payload;
+
+    if (await watchParty.host(payload)) {
+      watchPartyDialog.show();
+    }
+  }
+
+  function closePlayer() {
+    // Leaving the player means leaving the party: the host stops sharing, a guest stops following.
+    if (watchParty.active) {
+      watchParty.leave();
+    }
+
+    videoToPlay = null;
+  }
 
   $effect(() => {
     document.documentElement.classList.toggle('dark', prefersDark.current);
@@ -79,6 +117,14 @@
 
     // This now correctly starts the reactive effects and returns a cleanup function
     const destroyStore = appState.init();
+
+    // An invite link lands here with #party=<id>; the player opens once the host's video arrives.
+    // Read straight from the URL so this does not depend on effect ordering during mount.
+    const inviteParty = parseURIHash(window.location.hash)['party'];
+
+    if (inviteParty) {
+      void watchParty.join(inviteParty);
+    }
 
     setCastConsentProvider(
       () =>
@@ -147,12 +193,13 @@
   <main bind:this={mainElement} class="mx-auto py-6 px-4 sm:px-6 lg:px-8">
     <div>
       <SearchBar showHelp={() => helpDialog.show()} showRssFeed={() => rssFeedDialog.show()} />
-      <ResultsContainer onPlayVideo={(payload) => (videoToPlay = payload)} />
+      <ResultsContainer onPlayVideo={(payload) => (videoToPlay = payload)} onHostParty={hostParty} />
     </div>
   </main>
 </div>
 
-<VideoPlayer videoPayload={videoToPlay} onClose={() => (videoToPlay = null)} />
+<VideoPlayer videoPayload={videoToPlay} onClose={closePlayer} onOpenParty={() => watchPartyDialog.show()} />
+<WatchPartyDialog bind:this={watchPartyDialog} />
 <CookieDialog bind:this={cookieDialog} onConsent={handleCookieConsent} {showImpressum} {showDatenschutz} />
 <HelpDialog bind:this={helpDialog} />
 <RssFeedDialog bind:this={rssFeedDialog} />

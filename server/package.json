@@ -18,11 +18,13 @@
     "@valkey/valkey-glide": "2.3",
     "compression": "1.8",
     "express": "5.2",
+    "fast-xml-parser": "5.11",
     "got": "15.0",
     "line-reader": "0.4",
     "lzma-native": "8.0",
     "moment": "2.30",
-    "rss": "1.2"
+    "rss": "1.2",
+    "ws": "8.21"
   },
   "devDependencies": {
     "@types/compression": "1.8",
@@ -30,6 +32,7 @@
     "@types/line-reader": "0.0.37",
     "@types/node": "25",
     "@types/rss": "0.0",
+    "@types/ws": "8.18",
     "typescript": "6.0"
   }
 }

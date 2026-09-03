@@ -7,6 +7,7 @@ type Config = {
   dataDirectory: string,
   webserverPort: number,
   index: boolean,
+  watchParty: boolean,
   workerCount: number,
   workerArgs: string[],
   valkey: GlideClientConfiguration,
@@ -61,6 +62,7 @@ export const config: Config = {
   dataDirectory: getEnvOrDefault('DATA_DIRECTORY', 'data/'),
   webserverPort: getEnvOrDefault('WEBSERVER_PORT', 8000),
   index: getEnvOrDefault('INDEX', true),
+  watchParty: getEnvOrDefault('WATCH_PARTY', true),
 
   workerCount: getEnvOrDefault('WORKER_COUNT', Math.min(4, os.cpus().length)),
   workerArgs: getEnvOrDefault('WORKER_ARGS', '').split(',').filter(arg => arg.length > 0),

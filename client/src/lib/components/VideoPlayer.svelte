@@ -5,15 +5,71 @@
 
   import type { VideoPayload } from '$lib/types';
   import { trackEvent } from '$lib/utils';
+  import { DRIFT_THRESHOLD_SECONDS, videoPayloadToPartyVideo, watchParty } from '$lib/watchParty.svelte';
   import ChannelTag from './ChannelTag.svelte';
   import Icon from './Icon.svelte';
+  import WatchPartyIndicator from './WatchPartyIndicator.svelte';
 
-  let { videoPayload, onClose } = $props<{ videoPayload: VideoPayload | null; onClose: () => void }>();
+  let { videoPayload, onClose, onOpenParty } = $props<{ videoPayload: VideoPayload | null; onClose: () => void; onOpenParty: () => void }>();
+
+  const CAPTIONS_STORAGE_KEY = 'captionsEnabled';
 
   let dialog: HTMLDialogElement;
   let videoElement = $state<HTMLVideoElement>();
   let player: Player | null = null;
   let playStartTimestamp = 0;
+
+  /**
+   * Set while a remote state is being applied, so the resulting play/pause/seeked events are not
+   * echoed straight back to the server as if the local user had caused them.
+   */
+  let applyingRemoteUntil = 0;
+
+  function isApplyingRemote(): boolean {
+    return Date.now() < applyingRemoteUntil;
+  }
+
+  /** Publishes this client's playback as the party's authoritative state. Hosts only. */
+  function publishHostState() {
+    if (!player || player.isDisposed() || !videoPayload || !watchParty.isHost || isApplyingRemote()) {
+      return;
+    }
+
+    watchParty.publishHostState(videoPayloadToPartyVideo(videoPayload), Number(player.currentTime()) || 0, player.paused());
+  }
+
+  /**
+   * Becoming the host of a party the player is already open on has no playback event to ride on,
+   * so publish as soon as the role is known. Guests take the opposite path and ask to be placed
+   * on the host's position.
+   */
+  $effect(() => {
+    if (!watchParty.connected || !videoPayload) {
+      return;
+    }
+
+    if (watchParty.isHost) {
+      publishHostState();
+    } else if (watchParty.active) {
+      watchParty.requestResync();
+    }
+  });
+
+  function readCaptionsPreference(): boolean {
+    try {
+      return localStorage.getItem(CAPTIONS_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  function writeCaptionsPreference(enabled: boolean): void {
+    try {
+      localStorage.setItem(CAPTIONS_STORAGE_KEY, String(enabled));
+    } catch {
+      /* ignore */
+    }
+  }
 
   $effect(() => {
     if (videoPayload && dialog && !dialog.open) {
@@ -130,7 +186,8 @@
         trackEvent('Close Video', { playDuration: Math.floor(playDuration / 1000) });
       }
 
-      if (playDuration >= 30000) {
+      // The ad refresh must not fire during a party - it would restart the video for this client.
+      if (playDuration >= 30000 && !watchParty.active) {
         location.reload();
       }
       onClose();
@@ -150,6 +207,8 @@
 
   $effect(() => {
     if (videoPayload && videoElement) {
+      const payload = videoPayload as VideoPayload;
+
       const p = videojs(videoElement, {
         controls: true,
         preload: 'auto',
@@ -161,9 +220,91 @@
 
       player = p;
 
-      p.src({ src: videoPayload.url, type: videoPayload.url.endsWith('m3u8') ? 'application/x-mpegURL' : undefined });
+      p.src({ src: payload.url, type: payload.url.endsWith('m3u8') ? 'application/x-mpegURL' : undefined });
+
+      // --- captions -------------------------------------------------------------------------
+      // Captions stay off unless the user asked for them, and that choice carries to the next video.
+      const textTracks = p.textTracks();
+
+      // The list is index accessible at runtime, but its type carries no index signature.
+      function captionTracks(): TextTrack[] {
+        const list = textTracks as unknown as { length: number; [index: number]: TextTrack };
+        const tracks: TextTrack[] = [];
+
+        for (let index = 0; index < list.length; index++) {
+          const track = list[index];
+
+          if (track && (track.kind === 'captions' || track.kind === 'subtitles')) {
+            tracks.push(track);
+          }
+        }
+
+        return tracks;
+      }
+
+      function applyCaptionsPreference() {
+        const enabled = readCaptionsPreference();
+
+        for (const track of captionTracks()) {
+          track.mode = enabled ? 'showing' : 'disabled';
+        }
+      }
+
+      function persistCaptionsPreference() {
+        writeCaptionsPreference(captionTracks().some((track) => track.mode === 'showing'));
+      }
+
+      p.one('loadedmetadata', applyCaptionsPreference);
+      textTracks.addEventListener('addtrack', applyCaptionsPreference);
+      textTracks.addEventListener('change', persistCaptionsPreference);
+
+      // --- watch party sync -----------------------------------------------------------------
+      p.on('play', publishHostState);
+      p.on('pause', publishHostState);
+      p.on('seeked', publishHostState);
+
+      // A freshly loaded source is either the host announcing it or a guest asking where to be.
+      p.one('loadedmetadata', () => {
+        if (watchParty.isHost) {
+          publishHostState();
+        } else if (watchParty.active) {
+          watchParty.requestResync();
+        }
+      });
+
+      const unbindParty = watchParty.bindPlayer({
+        readPlayback: () => ({ position: Number(p.currentTime()) || 0, paused: p.paused(), videoId: payload.id }),
+        applyState: ({ video, position, paused, hard }) => {
+          // A different episode is handled by the parent, which swaps `videoPayload` and rebuilds
+          // this player; nothing to apply against the current source.
+          if (video && video.url !== payload.url) {
+            return;
+          }
+
+          if (p.isDisposed()) {
+            return;
+          }
+
+          const currentTime = Number(p.currentTime()) || 0;
+
+          // Only seek on a real divergence, otherwise every host tick would jitter the playhead.
+          if (hard || Math.abs(currentTime - position) > DRIFT_THRESHOLD_SECONDS) {
+            applyingRemoteUntil = Date.now() + 500;
+            p.currentTime(position);
+          }
+
+          if (paused !== p.paused()) {
+            applyingRemoteUntil = Date.now() + 500;
+            paused ? p.pause() : void p.play()?.catch(() => undefined);
+          }
+        },
+      });
 
       return () => {
+        unbindParty();
+        textTracks.removeEventListener('addtrack', applyCaptionsPreference);
+        textTracks.removeEventListener('change', persistCaptionsPreference);
+
         if (p && !p.isDisposed()) {
           p.dispose();
         }
@@ -172,12 +313,21 @@
       };
     }
   });
+
+  /** Guests use this to jump to the host's position from the drift indicator. */
+  function resyncSelf() {
+    watchParty.requestResync();
+  }
 </script>
 
 <dialog bind:this={dialog} class="px-[4vw] bg-transparent max-w-none max-h-none w-full h-full backdrop:bg-black/85">
-  <button type="button" aria-label="Player schließen" onclick={() => dialog.close()} class="absolute top-8 right-8 text-white z-10 cursor-pointer opacity-70 hover:opacity-100 transition-opacity">
-    <Icon icon="x-lg" size="3xl" />
-  </button>
+  <div class="absolute top-8 right-8 z-10 flex items-center gap-4">
+    <WatchPartyIndicator onResyncSelf={resyncSelf} onOpenDetails={onOpenParty} />
+
+    <button type="button" aria-label="Player schließen" onclick={() => dialog.close()} class="text-white cursor-pointer opacity-70 hover:opacity-100 transition-opacity">
+      <Icon icon="x-lg" size="3xl" />
+    </button>
+  </div>
 
   {#if videoPayload}
     <div class="max-w-[calc(3/5*100%+6rem)] h-full m-auto py-12 space-y-8">
@@ -191,8 +341,9 @@
       {#key videoPayload.url}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video-js bind:this={videoElement} class="vjs-big-play-centered w-full rounded-lg overflow-clip">
-          {#if videoPayload.url_subtitle}
-            <track kind="captions" src={videoPayload.url_subtitle} default />
+          {#if videoPayload.id && videoPayload.url_subtitle}
+            <!-- Served via /api/subtitle: broadcaster files are usually TTML, which browsers reject. -->
+            <track kind="captions" src={`/api/subtitle?id=${encodeURIComponent(videoPayload.id)}`} srclang="de" label="Untertitel" />
           {/if}
         </video-js>
       {/key}

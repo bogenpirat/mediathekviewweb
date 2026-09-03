@@ -26,7 +26,7 @@ export function trackEvent(eventName: string, data?: Record<string, any>): void 
   }
 }
 
-export async function playVideoInNewWindow(url: string): Promise<void> {
+export async function playVideoInNewWindow(url: string, allowReload = true): Promise<void> {
   const playerWindow: Window | null = window.open(url, '_blank');
   const start = Date.now();
 
@@ -36,7 +36,8 @@ export async function playVideoInNewWindow(url: string): Promise<void> {
 
   const playDuration = Date.now() - start;
 
-  if (playDuration >= 1000 * 30) {
+  // The ad refresh must not fire during a party - it would restart the video for this client.
+  if (playDuration >= 1000 * 30 && allowReload) {
     location.reload();
   }
 }

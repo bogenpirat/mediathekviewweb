@@ -2,17 +2,20 @@
   import { castVideo, isChromeBasedBrowser } from '$lib/cast';
   import type { ResultEntry, VideoPayload, VideoQuality } from '$lib/types';
   import { formatBytes, playVideoInNewWindow, trackEvent } from '$lib/utils';
+  import { watchParty } from '$lib/watchParty.svelte';
   import Icon from './Icon.svelte';
 
   let {
     entry,
     view,
     onPlayVideo,
+    onHostParty,
     isDetailsOpen = false,
   } = $props<{
     entry: ResultEntry;
     view: 'table-inline' | 'drawer';
     onPlayVideo: (payload: VideoPayload) => void;
+    onHostParty: (payload: VideoPayload) => void;
     isDetailsOpen?: boolean;
   }>();
 
@@ -77,18 +80,34 @@
     });
 
     if (url.startsWith('http://')) {
-      await playVideoInNewWindow(url);
+      await playVideoInNewWindow(url, !watchParty.active);
       return;
     }
 
-    onPlayVideo({
+    onPlayVideo(buildPayload(quality, url));
+  }
+
+  function buildPayload(quality: VideoQuality, url: string): VideoPayload {
+    return {
+      id: entry.id,
       channel: entry.channel,
       topic: entry.topic,
       title: entry.title,
       quality,
       url,
+      url_website: entry.url_website,
       url_subtitle: entry.url_subtitle,
-    });
+    };
+  }
+
+  async function hostParty(event: MouseEvent, quality: VideoQuality, url: string) {
+    event.stopPropagation();
+
+    if (isLongPress()) {
+      return;
+    }
+
+    onHostParty(buildPayload(quality, url));
   }
 
   function trackDownload(quality: VideoQuality) {
@@ -211,6 +230,13 @@
                 </button>
               </td>
             {/if}
+            <td>
+              {#if url.startsWith('https://')}
+                <button class="action-btn" title={`Watch-Party mit ${q.name} starten`} onpointerdown={recordPointerDown} onclick={(e) => hostParty(e, q.name, url)}>
+                  <Icon icon="people-fill" />
+                </button>
+              {/if}
+            </td>
           </tr>
         {/if}
       {/each}
@@ -244,6 +270,7 @@
             </a>
           </td>
           {#if showCastButton}<td></td>{/if}
+          <td></td>
         </tr>
       {/if}
     </tbody>
@@ -253,6 +280,7 @@
     <span><Icon icon="download" /> Download <span class="cursor-help" title="Zum Herunterladen je nach Browser 'Rechtsklick → Speichern unter...' nötig."><Icon icon="info-circle" /></span></span>
     <span><Icon icon="link-45deg" /> URL kopieren</span>
     {#if showCastButton}<span><Icon icon="cast" /> Chromecast</span>{/if}
+    <span><Icon icon="people-fill" /> Watch-Party</span>
   </div>
 {/if}
 
