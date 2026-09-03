@@ -1,8 +1,48 @@
-version: "3.7"
-
 services:
+  application:
+    build:
+      context: .
+      dockerfile: Containerfile
+      args:
+        # Subfolder the app is served from, e.g. /mediathek/ (keep the trailing slash).
+        # Baked into the client bundle at build time, so changing it needs a rebuild.
+        BASE_PATH: ${BASE_PATH:-/}
+    image: mediathekviewweb:local
+    restart: unless-stopped
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    environment:
+      OPENSEARCH_HOST: opensearch
+      OPENSEARCH_PORT: 9200
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_DB: ${VALKEY_DB:-2}
+      VALKEY_USER: ${VALKEY_USER:-}
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-}
+      INDEX: ${INDEX:-true}
+      WATCH_PARTY: ${WATCH_PARTY:-true}
+      WORKER_COUNT: ${WORKER_COUNT:-}
+      WORKER_ARGS: ${WORKER_ARGS:-}
+      CONTACT_NAME: ${CONTACT_NAME:-}
+      CONTACT_STREET: ${CONTACT_STREET:-}
+      CONTACT_POSTCODE: ${CONTACT_POSTCODE:-}
+      CONTACT_CITY: ${CONTACT_CITY:-}
+      CONTACT_MAIL: ${CONTACT_MAIL:-}
+      ADS_TEXT: ${ADS_TEXT:-}
+      INJECT_HTML_PATH: ${INJECT_HTML_PATH:-}
+    volumes:
+      # Holds the downloaded and unpacked filmliste; without it that work repeats on every recreate.
+      - "mediathekviewweb:/mediathekviewweb/data"
+    ports:
+      # Bound to loopback: the host's Apache proxies to it, nothing reaches it from outside.
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+
   opensearch:
     image: opensearchproject/opensearch:3
+    restart: unless-stopped
     environment:
       discovery.type: single-node
       bootstrap.memory_lock: "true"
@@ -10,20 +50,44 @@ services:
       DISABLE_INSTALL_DEMO_CONFIG: "true"
       DISABLE_SECURITY_PLUGIN: "true"
       OPENSEARCH_INITIAL_ADMIN_PASSWORD: MediathekViewWeb01!
-      INJECT_HTML_PATH:
+    ulimits:
+      # Required by bootstrap.memory_lock above, which otherwise fails to lock the heap.
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       - "opensearch:/usr/share/opensearch/data"
-    ports:
-      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    # Not published: only the application container needs to reach it, and 9200 is a common
+    # collision on a shared host. Uncomment to run the server on the host for development.
+    # ports:
+    #   - "127.0.0.1:9200:9200"
 
   valkey:
     image: valkey/valkey:9-alpine
+    restart: unless-stopped
     command: ["--save 60 1"]
     volumes:
       - "valkey:/data"
-    ports:
-      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    # Not published, same reasoning as opensearch. Uncomment for host-side development.
+    # ports:
+    #   - "127.0.0.1:6379:6379"
 
 volumes:
+  mediathekviewweb:
   valkey:
   opensearch:

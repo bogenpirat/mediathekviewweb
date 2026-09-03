@@ -41,3 +41,7 @@ static/index-compiled.min.js
 static/index-compiled.min.js.map
 
 dist
+
+# Local deployment configuration (see .env.sample)
+.env
+.env.local
