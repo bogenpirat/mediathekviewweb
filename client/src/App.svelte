@@ -120,10 +120,13 @@
 
     // An invite link lands here with #party=<id>; the player opens once the host's video arrives.
     // Read straight from the URL so this does not depend on effect ordering during mount.
-    const inviteParty = parseURIHash(window.location.hash)['party'];
+    const hashParams = parseURIHash(window.location.hash);
+    const inviteParty = hashParams['party'];
 
     if (inviteParty) {
-      void watchParty.join(inviteParty);
+      // The invite is single use, so it is spent on connect and then dropped from the URL by
+      // the store's hash sync - leaving a used token in the address bar helps nobody.
+      void watchParty.join(inviteParty, hashParams['invite']);
     }
 
     setCastConsentProvider(

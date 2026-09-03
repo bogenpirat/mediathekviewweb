@@ -15,6 +15,9 @@ const IDLE_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 /** Interval of the background sweep for grace-expired and idle parties. */
 const SWEEP_INTERVAL_MS = 30 * 1000;
 
+/** Upper bound on invites a host can mint, so the map cannot grow without limit. */
+const MAX_INVITES_PER_PARTY = 50;
+
 /** Clients further away from the host than this are reported as out of sync. */
 export const DRIFT_THRESHOLD_SECONDS = 2;
 
@@ -36,12 +39,24 @@ export type HostState = {
   receivedAt: number,
 };
 
-export type CloseReason = 'host-left' | 'superseded' | 'expired' | 'not-found' | 'full' | 'disabled';
+export type CloseReason = 'host-left' | 'superseded' | 'expired' | 'not-found' | 'full' | 'disabled' | 'invite-required' | 'invite-invalid';
+
+/**
+ * A single-use claim on a seat in the party. The host hands one out per guest; claiming it
+ * mints that guest a private member token, so a shoulder-surfed link is worthless once used.
+ */
+export type Invite = {
+  token: string,
+  createdAt: number,
+  /** Member token of the guest that claimed it, or null while unclaimed. */
+  claimedBy: string | null,
+};
 
 export type MemberRole = 'host' | 'guest';
 
 export type ServerMessage =
-  | { type: 'welcome', clientId: string, role: MemberRole, memberCount: number, hostState: HostState | null }
+  | { type: 'welcome', clientId: string, role: MemberRole, memberCount: number, hostState: HostState | null, memberToken?: string }
+  | { type: 'invites', invites: { token: string, claimed: boolean }[] }
   | { type: 'state', video: PartyVideo | null, position: number, paused: boolean }
   | { type: 'resync', position: number, paused: boolean }
   | { type: 'drift', drift: number | null, videoMismatch: boolean }
@@ -56,6 +71,8 @@ export type Member = {
   readonly role: MemberRole,
   readonly partyId: string,
   readonly send: Send,
+  /** Private token this guest reconnects with. Undefined for the host, which uses its host token. */
+  readonly memberToken?: string,
   /** Last position reported by this member, in media seconds. Null until the first tick. */
   position: number | null,
   paused: boolean,
@@ -70,12 +87,24 @@ type Party = {
   createdAt: number,
   hostState: HostState,
   members: Map<string, Member>,
+  /** Unclaimed and claimed invites, keyed by invite token. */
+  invites: Map<string, Invite>,
+  /** Member tokens minted for guests that claimed an invite, keyed by member token. */
+  guestTokens: Map<string, { inviteToken: string, createdAt: number }>,
   /** Time after which a party with no host attached is collected. Null while a host is attached. */
   hostGraceUntil: number | null,
 };
 
+export type AttachCredentials = {
+  hostToken?: string,
+  /** Single-use invite handed out by the host. Consumed on first successful attach. */
+  inviteToken?: string,
+  /** Private token a guest received when it claimed an invite; lets it reconnect. */
+  memberToken?: string,
+};
+
 export type AttachResult =
-  | { status: 'attached', member: Member }
+  | { status: 'attached', member: Member, memberToken?: string }
   | { status: 'rejected', reason: CloseReason };
 
 function randomId(bytes: number): string {
@@ -140,7 +169,7 @@ export class WatchPartyRegistry {
    * Creates a party for `hostIp`, closing any party that IP was already hosting.
    * Joining is never IP limited, only hosting is.
    */
-  createParty(hostIp: string): { partyId: string, hostToken: string } | { error: 'capacity' } {
+  createParty(hostIp: string): { partyId: string, hostToken: string, inviteToken: string } | { error: 'capacity' } {
     const existingPartyId = this.partyByHostIp.get(hostIp);
 
     if (existingPartyId != undefined) {
@@ -153,6 +182,7 @@ export class WatchPartyRegistry {
 
     const partyId = randomId(6);
     const hostToken = randomId(16);
+    const firstInvite: Invite = { token: randomId(16), createdAt: Date.now(), claimedBy: null };
     const now = Date.now();
 
     this.parties.set(partyId, {
@@ -162,35 +192,62 @@ export class WatchPartyRegistry {
       createdAt: now,
       hostState: { video: null, position: 0, paused: true, receivedAt: now },
       members: new Map(),
+      invites: new Map([[firstInvite.token, firstInvite]]),
+      guestTokens: new Map(),
       hostGraceUntil: now + HOST_GRACE_MS
     });
 
     this.partyByHostIp.set(hostIp, partyId);
 
-    return { partyId, hostToken };
+    return { partyId, hostToken, inviteToken: firstInvite.token };
   }
 
-  attach(partyId: string, send: Send, hostToken?: string): AttachResult {
+  /**
+   * Attaches a connection to a party. A caller must present one of three credentials:
+   * the host token, a single-use invite token, or the private member token minted when an
+   * invite was claimed. The party id alone is deliberately not enough - it travels in a link
+   * that may be read over someone's shoulder.
+   */
+  attach(partyId: string, send: Send, credentials: AttachCredentials = {}): AttachResult {
     const party = this.parties.get(partyId);
 
     if (party == undefined) {
       return { status: 'rejected', reason: 'not-found' };
     }
 
+    const isHost = (typeof credentials.hostToken == 'string')
+      && (credentials.hostToken.length > 0)
+      && tokensMatch(credentials.hostToken, party.hostToken);
+
+    let memberToken: string | undefined;
+
+    if (!isHost) {
+      const resolved = this.resolveGuest(party, credentials);
+
+      if (resolved.status == 'rejected') {
+        return resolved;
+      }
+
+      memberToken = resolved.memberToken;
+    }
+
     if (party.members.size >= MAX_MEMBERS_PER_PARTY) {
       return { status: 'rejected', reason: 'full' };
     }
 
-    const isHost = (typeof hostToken == 'string') && (hostToken.length > 0) && tokensMatch(hostToken, party.hostToken);
+    // One live connection per credential: a reconnecting host or guest replaces its old socket,
+    // so a leaked token cannot be used to watch alongside its owner.
+    const replaces = isHost
+      ? (existing: Member) => existing.role == 'host'
+      : (existing: Member) => existing.memberToken == memberToken;
+
+    for (const existing of [...party.members.values()]) {
+      if (replaces(existing)) {
+        party.members.delete(existing.id);
+      }
+    }
 
     if (isHost) {
-      // A reconnecting host takes the host slot back from any stale host connection.
-      for (const existing of [...party.members.values()]) {
-        if (existing.role == 'host') {
-          party.members.delete(existing.id);
-        }
-      }
-
       party.hostGraceUntil = null;
     }
 
@@ -199,6 +256,7 @@ export class WatchPartyRegistry {
       role: isHost ? 'host' : 'guest',
       partyId,
       send,
+      memberToken,
       position: null,
       paused: true,
       videoId: null,
@@ -212,7 +270,8 @@ export class WatchPartyRegistry {
       clientId: member.id,
       role: member.role,
       memberCount: party.members.size,
-      hostState: (party.hostState.video != null) ? party.hostState : null
+      hostState: (party.hostState.video != null) ? party.hostState : null,
+      memberToken
     });
 
     if (!isHost && (party.hostState.video != null)) {
@@ -222,7 +281,106 @@ export class WatchPartyRegistry {
 
     this.broadcastMemberCount(party);
 
-    return { status: 'attached', member };
+    // Keeps the host's invite list current, including which links have just been claimed.
+    this.sendInvites(party);
+
+    return { status: 'attached', member, memberToken };
+  }
+
+  /** Resolves a guest's credentials to a member token, claiming an invite if one is presented. */
+  private resolveGuest(party: Party, credentials: AttachCredentials): { status: 'ok', memberToken: string } | { status: 'rejected', reason: CloseReason } {
+    const { memberToken, inviteToken } = credentials;
+
+    // A returning guest reconnects with the token it was given, not with its spent invite.
+    if ((typeof memberToken == 'string') && party.guestTokens.has(memberToken)) {
+      return { status: 'ok', memberToken };
+    }
+
+    if ((typeof inviteToken != 'string') || (inviteToken.length == 0)) {
+      return { status: 'rejected', reason: 'invite-required' };
+    }
+
+    const invite = party.invites.get(inviteToken);
+
+    if ((invite == undefined) || (invite.claimedBy != null)) {
+      return { status: 'rejected', reason: 'invite-invalid' };
+    }
+
+    const issued = randomId(16);
+    invite.claimedBy = issued;
+    party.guestTokens.set(issued, { inviteToken, createdAt: Date.now() });
+
+    return { status: 'ok', memberToken: issued };
+  }
+
+  /** Host only: mints a fresh single-use invite. */
+  createInvite(member: Member): Invite | null {
+    const party = this.parties.get(member.partyId);
+
+    if ((party == undefined) || (member.role != 'host')) {
+      return null;
+    }
+
+    if (party.invites.size >= MAX_INVITES_PER_PARTY) {
+      // Drop the oldest claimed invite to make room; unclaimed ones are still wanted.
+      const stale = [...party.invites.values()].filter((invite) => invite.claimedBy != null).sort((a, b) => a.createdAt - b.createdAt)[0];
+
+      if (stale == undefined) {
+        return null;
+      }
+
+      party.invites.delete(stale.token);
+    }
+
+    const invite: Invite = { token: randomId(16), createdAt: Date.now(), claimedBy: null };
+    party.invites.set(invite.token, invite);
+
+    this.sendInvites(party);
+
+    return invite;
+  }
+
+  /**
+   * Host only: invalidates invites. Without a token every unclaimed invite is dropped, which is
+   * what the host wants after sharing a link with the wrong person.
+   */
+  revokeInvites(member: Member, token?: string): void {
+    const party = this.parties.get(member.partyId);
+
+    if ((party == undefined) || (member.role != 'host')) {
+      return;
+    }
+
+    if (typeof token == 'string') {
+      party.invites.delete(token);
+    }
+    else {
+      for (const invite of [...party.invites.values()]) {
+        if (invite.claimedBy == null) {
+          party.invites.delete(invite.token);
+        }
+      }
+    }
+
+    this.sendInvites(party);
+  }
+
+  /** True when the party has an unclaimed invite with this token. */
+  isInviteClaimable(partyId: string, token: string): boolean {
+    const invite = this.parties.get(partyId)?.invites.get(token);
+
+    return (invite != undefined) && (invite.claimedBy == null);
+  }
+
+  /** Pushes the invite list to every attached host connection. Guests never see it. */
+  private sendInvites(party: Party): void {
+    const invites = [...party.invites.values()].map((invite) => ({ token: invite.token, claimed: invite.claimedBy != null }));
+
+    for (const member of party.members.values()) {
+      if (member.role == 'host') {
+        member.send({ type: 'invites', invites });
+      }
+    }
   }
 
   detach(member: Member): void {

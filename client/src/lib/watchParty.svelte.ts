@@ -11,8 +11,9 @@ const RECONNECT_MIN_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 15000;
 
 const HOST_TOKEN_STORAGE_PREFIX = 'watchPartyHostToken:';
+const MEMBER_TOKEN_STORAGE_PREFIX = 'watchPartyMemberToken:';
 
-export type PartyCloseReason = 'host-left' | 'superseded' | 'expired' | 'not-found' | 'full' | 'disabled';
+export type PartyCloseReason = 'host-left' | 'superseded' | 'expired' | 'not-found' | 'full' | 'disabled' | 'invite-required' | 'invite-invalid';
 
 const closeReasonMessages: Record<PartyCloseReason, string> = {
   'host-left': 'Der Host hat die Party beendet.',
@@ -21,10 +22,15 @@ const closeReasonMessages: Record<PartyCloseReason, string> = {
   'not-found': 'Diese Party existiert nicht mehr.',
   full: 'Diese Party ist voll.',
   disabled: 'Watch-Partys sind auf diesem Server deaktiviert.',
+  'invite-required': 'Dieser Link enthält keine Einladung. Bitte frage den Host nach einem neuen Link.',
+  'invite-invalid': 'Diese Einladung wurde bereits verwendet oder zurückgezogen. Bitte frage den Host nach einem neuen Link.',
 };
 
+export type PartyInvite = { token: string; claimed: boolean };
+
 type ServerMessage =
-  | { type: 'welcome'; clientId: string; role: PartyRole; memberCount: number; hostState: { video: PartyVideo | null; position: number; paused: boolean } | null }
+  | { type: 'welcome'; clientId: string; role: PartyRole; memberCount: number; hostState: { video: PartyVideo | null; position: number; paused: boolean } | null; memberToken?: string }
+  | { type: 'invites'; invites: PartyInvite[] }
   | { type: 'state'; video: PartyVideo | null; position: number; paused: boolean }
   | { type: 'resync'; position: number; paused: boolean }
   | { type: 'drift'; drift: number | null; videoMismatch: boolean }
@@ -35,25 +41,26 @@ type ServerMessage =
 /** What the player must do when the host's state changes. */
 export type ApplyStateHandler = (state: { video: PartyVideo | null; position: number; paused: boolean; hard: boolean }) => void;
 
-function readHostToken(partyId: string): string | null {
+function readToken(prefix: string, partyId: string): string | null {
   try {
-    return sessionStorage.getItem(`${HOST_TOKEN_STORAGE_PREFIX}${partyId}`);
+    return sessionStorage.getItem(`${prefix}${partyId}`);
   } catch {
     return null;
   }
 }
 
-function writeHostToken(partyId: string, token: string): void {
+function writeToken(prefix: string, partyId: string, token: string): void {
   try {
-    sessionStorage.setItem(`${HOST_TOKEN_STORAGE_PREFIX}${partyId}`, token);
+    sessionStorage.setItem(`${prefix}${partyId}`, token);
   } catch {
     /* a party still works for this tab without persistence, it just cannot survive a reload */
   }
 }
 
-function clearHostToken(partyId: string): void {
+function clearTokens(partyId: string): void {
   try {
     sessionStorage.removeItem(`${HOST_TOKEN_STORAGE_PREFIX}${partyId}`);
+    sessionStorage.removeItem(`${MEMBER_TOKEN_STORAGE_PREFIX}${partyId}`);
   } catch {
     /* ignore */
   }
@@ -69,6 +76,10 @@ function createWatchParty() {
   let outOfSyncCount = $state(0);
   let notice = $state<string | null>(null);
   let starting = $state(false);
+  let invites = $state<PartyInvite[]>([]);
+
+  /** Invite token taken from the URL, spent on the first successful connect. */
+  let pendingInvite: string | null = null;
 
   let socket: WebSocket | null = null;
   let reconnectDelay = RECONNECT_MIN_DELAY_MS;
@@ -114,6 +125,18 @@ function createWatchParty() {
         memberCount = message.memberCount;
         hostVideo = message.hostState?.video ?? null;
         reconnectDelay = RECONNECT_MIN_DELAY_MS;
+
+        if (message.memberToken && partyId) {
+          // The invite is now spent; this token is what gets us back in after a reload.
+          writeToken(MEMBER_TOKEN_STORAGE_PREFIX, partyId, message.memberToken);
+          pendingInvite = null;
+        }
+
+        break;
+
+      case 'invites':
+        // The server mints the host's first link on attach, so this list is never empty for a host.
+        invites = message.invites;
         break;
 
       case 'state':
@@ -149,11 +172,18 @@ function createWatchParty() {
     disconnectSocket();
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const token = readHostToken(id);
     const query = new URLSearchParams({ party: id });
 
-    if (token) {
-      query.set('token', token);
+    const hostToken = readToken(HOST_TOKEN_STORAGE_PREFIX, id);
+    const memberToken = readToken(MEMBER_TOKEN_STORAGE_PREFIX, id);
+
+    // Prefer credentials we already hold; the single-use invite is only for the first connect.
+    if (hostToken) {
+      query.set('token', hostToken);
+    } else if (memberToken) {
+      query.set('member', memberToken);
+    } else if (pendingInvite) {
+      query.set('invite', pendingInvite);
     }
 
     const ws = new WebSocket(`${protocol}//${window.location.host}${withBase('/ws/party')}?${query.toString()}`);
@@ -224,7 +254,7 @@ function createWatchParty() {
 
   function teardown({ keepNotice }: { keepNotice: boolean }): void {
     if (partyId != null) {
-      clearHostToken(partyId);
+      clearTokens(partyId);
     }
 
     disconnectSocket();
@@ -236,6 +266,8 @@ function createWatchParty() {
     videoMismatch = false;
     outOfSyncCount = 0;
     hostVideo = null;
+    invites = [];
+    pendingInvite = null;
     reconnectDelay = RECONNECT_MIN_DELAY_MS;
 
     if (!keepNotice) {
@@ -283,8 +315,16 @@ function createWatchParty() {
     get starting() {
       return starting;
     },
-    get inviteUrl() {
-      return partyId == null ? '' : `${window.location.origin}${withBase('/')}#party=${partyId}`;
+    get invites() {
+      return invites;
+    },
+    get unclaimedInvites() {
+      return invites.filter((invite) => !invite.claimed);
+    },
+
+    /** Shareable link for one specific single-use invite. */
+    inviteUrl(token: string): string {
+      return partyId == null ? '' : `${window.location.origin}${withBase('/')}#party=${partyId}&invite=${token}`;
     },
 
     dismissNotice() {
@@ -319,7 +359,7 @@ function createWatchParty() {
 
         teardown({ keepNotice: false });
 
-        writeHostToken(data.party.partyId, data.party.hostToken);
+        writeToken(HOST_TOKEN_STORAGE_PREFIX, data.party.partyId, data.party.hostToken);
         partyId = data.party.partyId;
         role = 'host';
         connect(data.party.partyId);
@@ -337,16 +377,32 @@ function createWatchParty() {
       }
     },
 
-    async join(id: string): Promise<boolean> {
+    async join(id: string, invite?: string): Promise<boolean> {
       notice = null;
 
+      // A member token from an earlier visit outranks the invite: the link may already be spent.
+      const existingMemberToken = readToken(MEMBER_TOKEN_STORAGE_PREFIX, id);
+
       try {
-        const response = await fetch(withBase(`/api/party/${encodeURIComponent(id)}`));
+        const query = invite ? `?invite=${encodeURIComponent(invite)}` : '';
+        const response = await fetch(withBase(`/api/party/${encodeURIComponent(id)}${query}`));
         const data = await response.json();
 
         if (!response.ok || !data.exists) {
           notice = closeReasonMessages['not-found'];
           return false;
+        }
+
+        if (!existingMemberToken) {
+          if (!invite) {
+            notice = closeReasonMessages['invite-required'];
+            return false;
+          }
+
+          if (!data.inviteClaimable) {
+            notice = closeReasonMessages['invite-invalid'];
+            return false;
+          }
         }
       } catch (error) {
         notice = 'Party konnte nicht erreicht werden.';
@@ -355,15 +411,36 @@ function createWatchParty() {
         return false;
       }
 
+      const carriedMemberToken = existingMemberToken;
       teardown({ keepNotice: false });
+
+      if (carriedMemberToken) {
+        writeToken(MEMBER_TOKEN_STORAGE_PREFIX, id, carriedMemberToken);
+      }
 
       partyId = id;
       role = 'guest';
+      pendingInvite = invite ?? null;
       connect(id);
 
       trackEvent('Watch Party Join');
 
       return true;
+    },
+
+    /** Host only: mint another single-use link. */
+    createInvite(): void {
+      if (role === 'host') {
+        send({ type: 'create-invite' });
+        trackEvent('Watch Party Invite Created');
+      }
+    },
+
+    /** Host only: invalidate one link, or every unclaimed link when no token is given. */
+    revokeInvites(token?: string): void {
+      if (role === 'host') {
+        send(token ? { type: 'revoke-invites', token } : { type: 'revoke-invites' });
+      }
     },
 
     /** Host only: publish the authoritative state after a play, pause, seek or episode change. */

@@ -213,7 +213,9 @@ ${partyStats}`);
       party: {
         partyId: created.partyId,
         hostToken: created.hostToken,
-        inviteUrl: `${req.protocol}://${req.get('host')}${prefix}/#party=${created.partyId}`
+        // Carries the party's first single-use invite; without one the link is not usable.
+        inviteToken: created.inviteToken,
+        inviteUrl: `${req.protocol}://${req.get('host')}${prefix}/#party=${created.partyId}&invite=${created.inviteToken}`
       }
     });
   });
@@ -225,11 +227,14 @@ ${partyStats}`);
     }
 
     const partyId = req.params.id;
+    const invite = req.query.invite as string | undefined;
 
     res.json({
       error: null,
       exists: watchPartyRegistry.has(partyId),
-      hasVideo: watchPartyRegistry.hasVideo(partyId)
+      hasVideo: watchPartyRegistry.hasVideo(partyId),
+      // Probing does not consume the invite; claiming happens on the socket upgrade.
+      inviteClaimable: (typeof invite == 'string') && watchPartyRegistry.isInviteClaimable(partyId, invite)
     });
   });
 

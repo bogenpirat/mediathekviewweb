@@ -122,6 +122,14 @@ function handleMessage(registry: WatchPartyRegistry, member: Member, raw: string
       registry.requestResync(member);
       return;
 
+    case 'create-invite':
+      registry.createInvite(member);
+      return;
+
+    case 'revoke-invites':
+      registry.revokeInvites(member, (typeof message['token'] == 'string') ? message['token'] : undefined);
+      return;
+
     case 'end-party':
       registry.closeByHost(member);
       return;
@@ -158,7 +166,11 @@ export function attachWatchPartySocket(httpServer: http.Server, registry: WatchP
 
     webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
       const partyId = requestUrl.searchParams.get('party') ?? '';
-      const hostToken = requestUrl.searchParams.get('token') ?? undefined;
+      const credentials = {
+        hostToken: requestUrl.searchParams.get('token') ?? undefined,
+        inviteToken: requestUrl.searchParams.get('invite') ?? undefined,
+        memberToken: requestUrl.searchParams.get('member') ?? undefined
+      };
 
       // A `closed` message is always terminal, so the transport tears the socket down with it.
       const attachResult = registry.attach(partyId, (message) => {
@@ -167,7 +179,7 @@ export function attachWatchPartySocket(httpServer: http.Server, registry: WatchP
         if (message.type == 'closed') {
           webSocket.close(CLOSE_CODE_PARTY_CLOSED, message.reason);
         }
-      }, hostToken);
+      }, credentials);
 
       if (attachResult.status == 'rejected') {
         send(webSocket, { type: 'closed', reason: attachResult.reason });
