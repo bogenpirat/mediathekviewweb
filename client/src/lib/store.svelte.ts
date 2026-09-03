@@ -1,5 +1,5 @@
 import { isSortBy, isSortOrder, type QueryResult, type ResultEntry, type SortBy, type SortOrder } from './types';
-import { createURIHash, debounce, parseURIHash, throttle, trackEvent } from './utils';
+import { createURIHash, debounce, parseURIHash, throttle, trackEvent, withBase } from './utils';
 
 const MAX_RESULTS = 10000;
 
@@ -63,7 +63,7 @@ function createAppState() {
     };
 
     try {
-      const res = await fetch('/api/query', {
+      const res = await fetch(withBase('/api/query'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -278,7 +278,7 @@ function createAppState() {
       const extra = `quality=${quality}&size=${size}`;
       const params = (search.length > 0) ? `${search}&${extra}` : extra;
 
-      return `${window.location.origin}/feed?${params}`;
+      return `${window.location.origin}${withBase('/feed')}?${params}`;
     },
     init
   };

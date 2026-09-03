@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { withBase } from '$lib/utils';
+
   type IconSize = '0' | 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl';
 
   const sizeMap: Record<IconSize, string> = {
@@ -30,7 +32,7 @@
     class?: string;
   }
 
-  let { icon, size, svgPath = '/assets/bootstrap-icons.svg', class: extraClass = '', ...rest }: Props = $props();
+  let { icon, size, svgPath = withBase('/assets/bootstrap-icons.svg'), class: extraClass = '', ...rest }: Props = $props();
 
   const url = $derived(`${svgPath}#${icon}`);
   const sizeClass = $derived(size ? sizeMap[size] : '');

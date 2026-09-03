@@ -13,6 +13,10 @@ RUN npm run build --prefix server
 RUN npm ci --omit=dev --prefix server
 
 COPY client/ ./client/
+# Serve the app from a subfolder behind a reverse proxy, e.g. --build-arg BASE_PATH=/mediathek/
+# The client bundle bakes this in, so it is a build-time value rather than a runtime one.
+ARG BASE_PATH=/
+ENV VITE_BASE_PATH=$BASE_PATH
 RUN npm run build --prefix client
 
 RUN mkdir -p /dist/client && \

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { castVideo, isChromeBasedBrowser } from '$lib/cast';
   import type { ResultEntry, VideoPayload, VideoQuality } from '$lib/types';
-  import { formatBytes, playVideoInNewWindow, trackEvent } from '$lib/utils';
+  import { formatBytes, playVideoInNewWindow, trackEvent, withBase } from '$lib/utils';
   import { watchParty } from '$lib/watchParty.svelte';
   import Icon from './Icon.svelte';
 
@@ -44,7 +44,7 @@
   async function fetchSize(quality: VideoQuality | 'subtitle', url: string) {
     if (!url) return;
     try {
-      const res = await fetch(`/api/content-length?url=${encodeURIComponent(url)}`);
+      const res = await fetch(withBase(`/api/content-length?url=${encodeURIComponent(url)}`));
       const lengthStr = await res.text();
       const length = parseInt(lengthStr, 10);
       if (!isNaN(length) && length > 0) {

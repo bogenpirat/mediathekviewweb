@@ -203,12 +203,17 @@ ${partyStats}`);
       return;
     }
 
+    // A reverse proxy serving the app from a subfolder can advertise it via X-Forwarded-Prefix;
+    // the browser builds its own link from the page URL, so this is for API consumers.
+    const forwardedPrefix = req.get('x-forwarded-prefix') ?? '';
+    const prefix = /^\/[\w\-./]*$/.test(forwardedPrefix) ? forwardedPrefix.replace(/\/$/, '') : '';
+
     res.json({
       error: null,
       party: {
         partyId: created.partyId,
         hostToken: created.hostToken,
-        inviteUrl: `${req.protocol}://${req.get('host')}/#party=${created.partyId}`
+        inviteUrl: `${req.protocol}://${req.get('host')}${prefix}/#party=${created.partyId}`
       }
     });
   });

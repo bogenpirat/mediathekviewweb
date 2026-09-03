@@ -1,5 +1,5 @@
 import type { PartyRole, PartyVideo, VideoPayload } from './types';
-import { trackEvent } from './utils';
+import { trackEvent, withBase } from './utils';
 
 /** Clients further from the host than this are shown as out of sync. Matches the server value. */
 export const DRIFT_THRESHOLD_SECONDS = 2;
@@ -156,7 +156,7 @@ function createWatchParty() {
       query.set('token', token);
     }
 
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/party?${query.toString()}`);
+    const ws = new WebSocket(`${protocol}//${window.location.host}${withBase('/ws/party')}?${query.toString()}`);
     socket = ws;
 
     ws.addEventListener('open', () => {
@@ -284,7 +284,7 @@ function createWatchParty() {
       return starting;
     },
     get inviteUrl() {
-      return partyId == null ? '' : `${window.location.origin}/#party=${partyId}`;
+      return partyId == null ? '' : `${window.location.origin}${withBase('/')}#party=${partyId}`;
     },
 
     dismissNotice() {
@@ -309,7 +309,7 @@ function createWatchParty() {
       notice = null;
 
       try {
-        const response = await fetch('/api/party', { method: 'POST' });
+        const response = await fetch(withBase('/api/party'), { method: 'POST' });
         const data = await response.json();
 
         if (!response.ok || data.party == null) {
@@ -341,7 +341,7 @@ function createWatchParty() {
       notice = null;
 
       try {
-        const response = await fetch(`/api/party/${encodeURIComponent(id)}`);
+        const response = await fetch(withBase(`/api/party/${encodeURIComponent(id)}`));
         const data = await response.json();
 
         if (!response.ok || !data.exists) {

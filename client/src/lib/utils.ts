@@ -1,3 +1,14 @@
+/**
+ * Public path the app is served from, without a trailing slash ('' at the domain root).
+ * Set at build time via VITE_BASE_PATH; see vite.config.ts.
+ */
+const BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+/** Prefixes a root-relative path with the deployment's base path. */
+export function withBase(path: string): string {
+  return `${BASE_PATH}${path}`;
+}
+
 declare const umami: {
   track: (event_name: string, data?: Record<string, any>) => void;
   identify: (unique_id: string) => void;

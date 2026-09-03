@@ -4,7 +4,7 @@
   import type Player from 'video.js/dist/types/player';
 
   import type { VideoPayload } from '$lib/types';
-  import { trackEvent } from '$lib/utils';
+  import { trackEvent, withBase } from '$lib/utils';
   import { DRIFT_THRESHOLD_SECONDS, videoPayloadToPartyVideo, watchParty } from '$lib/watchParty.svelte';
   import ChannelTag from './ChannelTag.svelte';
   import Icon from './Icon.svelte';
@@ -343,7 +343,7 @@
         <video-js bind:this={videoElement} class="vjs-big-play-centered w-full rounded-lg overflow-clip">
           {#if videoPayload.id && videoPayload.url_subtitle}
             <!-- Served via /api/subtitle: broadcaster files are usually TTML, which browsers reject. -->
-            <track kind="captions" src={`/api/subtitle?id=${encodeURIComponent(videoPayload.id)}`} srclang="de" label="Untertitel" />
+            <track kind="captions" src={withBase(`/api/subtitle?id=${encodeURIComponent(videoPayload.id)}`)} srclang="de" label="Untertitel" />
           {/if}
         </video-js>
       {/key}

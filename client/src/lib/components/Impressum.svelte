@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { withBase } from '$lib/utils';
+
   type ContactInfo = {
     name: string;
     street: string;
@@ -13,7 +15,7 @@
   $effect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/contact-info');
+        const res = await fetch(withBase('/api/contact-info'));
         if (!res.ok) {
           throw new Error('Failed to fetch contact information');
         }
