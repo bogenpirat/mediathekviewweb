@@ -13,6 +13,8 @@
   let { videoPayload, onClose, onOpenParty } = $props<{ videoPayload: VideoPayload | null; onClose: () => void; onOpenParty: () => void }>();
 
   const CAPTIONS_STORAGE_KEY = 'captionsEnabled';
+  const VOLUME_STORAGE_KEY = 'playerVolume';
+  const MUTED_STORAGE_KEY = 'playerMuted';
 
   let dialog: HTMLDialogElement;
   let videoElement = $state<HTMLVideoElement>();
@@ -66,6 +68,35 @@
   function writeCaptionsPreference(enabled: boolean): void {
     try {
       localStorage.setItem(CAPTIONS_STORAGE_KEY, String(enabled));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function readVolumePreference(): { volume: number; muted: boolean } | null {
+    try {
+      const stored = localStorage.getItem(VOLUME_STORAGE_KEY);
+
+      if (stored == null) {
+        return null;
+      }
+
+      const volume = Number(stored);
+
+      if (!Number.isFinite(volume)) {
+        return null;
+      }
+
+      return { volume: Math.min(1, Math.max(0, volume)), muted: localStorage.getItem(MUTED_STORAGE_KEY) === 'true' };
+    } catch {
+      return null;
+    }
+  }
+
+  function writeVolumePreference(volume: number, muted: boolean): void {
+    try {
+      localStorage.setItem(VOLUME_STORAGE_KEY, String(volume));
+      localStorage.setItem(MUTED_STORAGE_KEY, String(muted));
     } catch {
       /* ignore */
     }
@@ -227,6 +258,17 @@
       player = p;
 
       p.src({ src: payload.url, type: payload.url.endsWith('m3u8') ? 'application/x-mpegURL' : undefined });
+
+      // --- volume ---------------------------------------------------------------------------
+      // Like captions, the volume the user last settled on carries to the next video and the next visit.
+      const storedVolume = readVolumePreference();
+
+      if (storedVolume) {
+        p.volume(storedVolume.volume);
+        p.muted(storedVolume.muted);
+      }
+
+      p.on('volumechange', () => writeVolumePreference(Number(p.volume()) || 0, p.muted() === true));
 
       // --- captions -------------------------------------------------------------------------
       // Captions stay off unless the user asked for them, and that choice carries to the next video.
