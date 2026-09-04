@@ -55,9 +55,13 @@
   });
 
   async function hostParty(payload: VideoPayload) {
+    // The party has to exist before the player mounts, otherwise the player does not yet know it
+    // belongs to a party and starts playing on its own instead of waiting for the host.
+    const hosting = await watchParty.host(payload);
+
     videoToPlay = payload;
 
-    if (await watchParty.host(payload)) {
+    if (hosting) {
       watchPartyDialog.show();
     }
   }
