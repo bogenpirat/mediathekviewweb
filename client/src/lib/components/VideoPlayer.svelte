@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount } from 'svelte';
   import videojs from 'video.js';
   import type Player from 'video.js/dist/types/player';
 
@@ -209,16 +209,11 @@
     if (videoPayload && videoElement) {
       const payload = videoPayload as VideoPayload;
 
-      // In a party the playhead belongs to the host: they press play when everyone is there, and
-      // guests are put where the host is by the first state or resync. Untracked, so a party
-      // starting or ending never rebuilds the player mid-video.
-      const inParty = untrack(() => watchParty.active);
-
       const p = videojs(videoElement, {
         controls: true,
         preload: 'auto',
         fluid: true,
-        autoplay: !inParty,
+        autoplay: true,
         enableSmoothSeeking: true,
         skipButtons: true,
       });
