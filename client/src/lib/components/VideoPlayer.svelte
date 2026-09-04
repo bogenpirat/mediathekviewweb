@@ -10,7 +10,7 @@
   import Icon from './Icon.svelte';
   import WatchPartyIndicator from './WatchPartyIndicator.svelte';
 
-  let { videoPayload, onClose, onOpenParty } = $props<{ videoPayload: VideoPayload | null; onClose: () => void; onOpenParty: () => void }>();
+  let { videoPayload, autoplay = true, onClose, onOpenParty } = $props<{ videoPayload: VideoPayload | null; autoplay?: boolean; onClose: () => void; onOpenParty: () => void }>();
 
   const CAPTIONS_STORAGE_KEY = 'captionsEnabled';
 
@@ -209,23 +209,39 @@
     if (videoPayload && videoElement) {
       const payload = videoPayload as VideoPayload;
 
-      // In a party the playhead belongs to the host: they press play when everyone is there, and
-      // guests are put where the host is by the first state or resync. Untracked, so a party
-      // starting or ending never rebuilds the player mid-video.
-      const inParty = untrack(() => watchParty.active);
+      // Belongs to the source being opened, so it is read once: tracking it would tear down and
+      // rebuild the player mid-video every time the flag changed.
+      const shouldAutoplay = untrack(() => autoplay);
 
       const p = videojs(videoElement, {
         controls: true,
         preload: 'auto',
         fluid: true,
-        autoplay: !inParty,
+        autoplay: shouldAutoplay,
         enableSmoothSeeking: true,
         skipButtons: true,
       });
 
       player = p;
 
+      /** Set once the host's state has been applied, so the hold below stops interfering. */
+      let remoteApplied = false;
+
       p.src({ src: payload.url, type: payload.url.endsWith('m3u8') ? 'application/x-mpegURL' : undefined });
+
+      if (!shouldAutoplay) {
+        // The option alone is not enough: a tech that has already buffered can start on its own,
+        // so hold the source at the start until someone actually asks for playback. Registered
+        // before the party handlers, so a host publishes the paused state that results.
+        function holdPaused() {
+          if (!remoteApplied && !p.paused()) {
+            p.pause();
+          }
+        }
+
+        p.one('loadstart', holdPaused);
+        p.one('loadedmetadata', holdPaused);
+      }
 
       // --- captions -------------------------------------------------------------------------
       // Captions stay off unless the user asked for them, and that choice carries to the next video.
@@ -289,6 +305,8 @@
           if (p.isDisposed()) {
             return;
           }
+
+          remoteApplied = true;
 
           const currentTime = Number(p.currentTime()) || 0;
 

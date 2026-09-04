@@ -32,6 +32,12 @@
   let legalDialog = $state<Dialog>();
 
   let videoToPlay = $state<VideoPayload | null>(null);
+
+  /**
+   * Whether the player may start on its own. Anything party related opens paused: the host starts
+   * playback when everyone has arrived, and a guest is placed by the host's state.
+   */
+  let autoplayVideo = $state(true);
   let pageToView = $state<'datenschutz' | 'impressum' | null>(null);
 
   const prefersDark = new MediaQuery('(prefers-color-scheme: dark)');
@@ -45,6 +51,7 @@
     }
 
     if (untrack(() => videoToPlay?.url) !== hostVideo.url) {
+      autoplayVideo = false;
       videoToPlay = partyVideoToVideoPayload(hostVideo);
     }
   });
@@ -54,9 +61,16 @@
     appState.partyId = watchParty.partyId ?? undefined;
   });
 
+  function playVideo(payload: VideoPayload) {
+    autoplayVideo = true;
+    videoToPlay = payload;
+  }
+
   async function hostParty(payload: VideoPayload) {
-    // The party has to exist before the player mounts, otherwise the player does not yet know it
-    // belongs to a party and starts playing on its own instead of waiting for the host.
+    // Set before anything is awaited: the player must never see a stale `true` here, however the
+    // request to create the party goes.
+    autoplayVideo = false;
+
     const hosting = await watchParty.host(payload);
 
     videoToPlay = payload;
@@ -200,12 +214,12 @@
   <main bind:this={mainElement} class="mx-auto py-6 px-4 sm:px-6 lg:px-8">
     <div>
       <SearchBar showHelp={() => helpDialog.show()} showRssFeed={() => rssFeedDialog.show()} />
-      <ResultsContainer onPlayVideo={(payload) => (videoToPlay = payload)} onHostParty={hostParty} />
+      <ResultsContainer onPlayVideo={playVideo} onHostParty={hostParty} />
     </div>
   </main>
 </div>
 
-<VideoPlayer videoPayload={videoToPlay} onClose={closePlayer} onOpenParty={() => watchPartyDialog.show()} />
+<VideoPlayer videoPayload={videoToPlay} autoplay={autoplayVideo} onClose={closePlayer} onOpenParty={() => watchPartyDialog.show()} />
 <WatchPartyDialog bind:this={watchPartyDialog} />
 <CookieDialog bind:this={cookieDialog} onConsent={handleCookieConsent} {showImpressum} {showDatenschutz} />
 <HelpDialog bind:this={helpDialog} />
