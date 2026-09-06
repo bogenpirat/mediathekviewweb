@@ -49,21 +49,24 @@
     <div class="space-y-6">
       {#if watchParty.isHost}
         <p class="text-sm text-gray-600 dark:text-gray-300">
-          Jeder Link funktioniert <strong>genau einmal</strong>. Erstelle pro Gast einen eigenen Link — wer ihn nur von deinem Bildschirm abliest, kommt damit nicht mehr hinein, sobald er benutzt wurde.
+          Jeder Link funktioniert <strong>genau einmal</strong>. Erstelle pro Gast einen eigenen Link — er wird hier nicht angezeigt, sondern nur kopiert, damit ihn niemand von deinem Bildschirm abliest.
         </p>
 
         <div class="space-y-2">
-          {#each watchParty.invites as invite (invite.token)}
+          {#each watchParty.invites as invite, index (invite.token)}
             <div class="flex items-center gap-2">
               {#if invite.claimed}
-                <span class="flex-1 truncate rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-500 line-through dark:bg-gray-900 dark:text-gray-400">
-                  {watchParty.inviteUrl(invite.token)}
+                <span class="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+                  <Icon icon="link-45deg" /> Link {index + 1}
                 </span>
                 <span class="inline-flex items-center gap-1 text-sm whitespace-nowrap text-green-600 dark:text-green-500">
                   <Icon icon="person-check-fill" /> benutzt
                 </span>
               {:else}
-                <input type="text" readonly value={watchParty.inviteUrl(invite.token)} class="min-w-0 flex-1 rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-900" onfocus={(e) => e.currentTarget.select()} aria-label="Einladungslink" />
+                <span class="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400">
+                  <Icon icon="link-45deg" /> Link {index + 1}
+                  <span class="truncate font-mono tracking-widest select-none" aria-hidden="true">••••••••••••</span>
+                </span>
                 <Button variant={copiedToken === invite.token ? 'success' : 'secondary'} onclick={() => copyInvite(invite.token)} title="Einladungslink kopieren">
                   {#if copiedToken === invite.token}
                     <Icon icon="check-lg" />
