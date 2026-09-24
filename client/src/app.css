@@ -26,6 +26,39 @@
   --color-blue-600: oklch(55.8% 0.288 302.321);
 }
 
+@layer base {
+  /* Hover and focus states fade in instead of snapping. A component's own `transition-*` utility still wins. */
+  button,
+  a,
+  select,
+  [role="button"] {
+    transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, opacity, box-shadow;
+    transition-duration: 200ms;
+    transition-timing-function: ease-out;
+  }
+}
+
+/*
+ * Click feedback, started by `lib/press.ts`. It animates `scale` rather than `transform` so it composes
+ * with transforms an element already has, and `--press-scale` is sized so every button dips by a similar
+ * number of pixels regardless of its width.
+ */
+@keyframes press {
+  35% {
+    scale: var(--press-scale, 0.95);
+  }
+}
+
+[data-pressed] {
+  animation: press 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-pressed] {
+    animation: none;
+  }
+}
+
 :root {
   font-family: "Inter", system-ui, Avenir, Helvetica, Arial, sans-serif;
 
