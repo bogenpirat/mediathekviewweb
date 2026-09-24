@@ -1,5 +1,7 @@
 # MediathekViewWeb → [mediathekviewweb.de](https://mediathekviewweb.de/)
 
+> **Hinweis:** Dies ist ein Fork von [mediathekview/mediathekviewweb](https://github.com/mediathekview/mediathekviewweb). Zusätzlich zum Original bietet er eine [**Watch-Party**](#watch-party), mit der mehrere Personen ein Video gemeinsam und synchron ansehen können.
+
 MediathekViewWeb ist eine Web-Oberfläche für den schnellen und einfachen Zugriff auf die Filmliste des [MediathekView Projekts](https://mediathekview.de/).
 
 Im Gegensatz zur Desktop-Anwendung MediathekView muss bei MediathekViewWeb weder ein Programm installiert noch eine Filmliste manuell geladen werden. Die Suche steht augenblicklich im Browser zur Verfügung – auch auf Smartphones und Tablets.
@@ -14,6 +16,7 @@ Im Gegensatz zur Desktop-Anwendung MediathekView muss bei MediathekViewWeb weder
 - **Mobilfreundlich:** Das responsive Design funktioniert auf Desktops, Tablets und Smartphones.
 - **Integrierter Videoplayer:** Viele Inhalte können direkt auf der Website abgespielt werden.
 - **RSS-Feeds:** Abonniere deine Suchen und bleibe über neue Inhalte auf dem Laufenden.
+- **Watch-Party:** Schaue Videos gemeinsam mit Freunden – die Wiedergabe bleibt bei allen synchron.
 
 ## Bedienung & Suchsyntax
 
@@ -109,6 +112,34 @@ Die Suchergebnisse können nach verschiedenen Kriterien wie **Datum**, **Dauer**
 
 Jede Suchanfrage kann als [RSS-Feed](<https://de.wikipedia.org/wiki/RSS_(Web-Feed)>) abonniert werden. Klicke dazu auf das **RSS-Symbol**, um den Feed-Link zu erhalten. Der Link kodiert den vollständigen Suchzustand — Selektoren, Sortierung, Dauer-Filter und die Überall/Zukünftige-Schalter — sodass auch komplexe Suchen direkt abonniert werden können. So wirst du automatisch über neue Ergebnisse informiert.
 
+### Watch-Party
+
+Mit einer Watch-Party schaust du ein Video gemeinsam mit anderen, die an einem anderen Ort sind. Du bist der **Host** und steuerst die Wiedergabe: Wenn du abspielst, pausierst, spulst oder die Folge wechselst, folgen die Player aller Gäste automatisch.
+
+**Party starten**
+
+1. Klappe bei einem Suchergebnis die Details auf und klicke in der Zeile der gewünschten Qualität (HD, SD oder LQ) auf das **Personen-Symbol** („Watch-Party starten“). Das Symbol erscheint nur bei Videos, die per HTTPS ausgeliefert werden.
+2. Das Video öffnet sich im Player und die Party ist gestartet. Oben rechts im Player zeigt ein Symbol die Anzahl der Teilnehmenden – ein Klick darauf öffnet die Verwaltung.
+3. Kopiere dort einen **Einladungslink** und schicke ihn einer Person. Für jede weitere Person erstellst du einen neuen Link.
+
+**Einladungslinks**
+
+- Jeder Link funktioniert **genau einmal**. Danach ist er an den Browser gebunden, der ihn zuerst geöffnet hat. Ein mitgelesener oder weitergeleiteter Link ist damit wertlos, sobald er benutzt wurde.
+- Noch nicht benutzte Links kannst du einzeln oder alle auf einmal **zurückziehen**, falls einer an die falsche Person gegangen ist.
+- In der Verwaltung werden die Links verdeckt angezeigt, damit sie beim Bildschirmteilen nicht mitgelesen werden können.
+
+**Während der Party**
+
+- Die Verwaltung zeigt, wie viele Personen teilnehmen und ob alle synchron sind. Als Host kannst du dort jederzeit alle Gäste auf deine aktuelle Position springen lassen.
+- Läuft jemand mehr als zwei Sekunden auseinander, erscheint oben im Player ein Hinweis: Der Host kann damit alle Gäste nachziehen, ein Gast springt damit selbst zur Position des Hosts.
+- Neu laden oder eine kurze Verbindungsunterbrechung beenden die Party nicht: Host und Gäste werden automatisch wieder verbunden.
+
+**Party beenden**
+
+Der Host beendet die Party über **Party beenden**, Gäste verlassen sie über **Party verlassen**. Schließt der Host den Tab, endet die Party nach 90 Sekunden. An einer Party können bis zu 20 Personen (inklusive Host) teilnehmen.
+
+Es werden keine Namen oder Konten benötigt, und keine Teilnehmerin und kein Teilnehmer sieht, wer sonst noch dabei ist – nur die Anzahl.
+
 ## FAQ
 
 ### Warum kann ich SRF- und ORF-Beiträge nicht direkt herunterladen?
@@ -155,3 +186,10 @@ Um diese Streams dennoch herunterzuladen, empfehlen wir den Desktop-Client [**Me
 - **Svelte**: Reaktives Frontend-Framework zum Erstellen der Benutzeroberfläche.
 - **Tailwind CSS**: Ein CSS-Framework für modernes und responsives Design.
 - **Video.js**: Ein erweiterbarer HTML5-Videoplayer.
+
+### Betrieb der Watch-Party
+
+- Die Watch-Party ist standardmäßig aktiv und lässt sich mit `WATCH_PARTY=false` abschalten (siehe `.env.sample`). Dann sind auch der WebSocket-Endpunkt `/ws/party` und die Party-API deaktiviert.
+- Ein Reverse-Proxy muss neben den normalen HTTP-Anfragen auch **WebSocket-Verbindungen** auf `/ws/party` an den Server weiterleiten (bei Apache z. B. eine zusätzliche `ProxyPass`-Zeile mit `ws://`).
+- Alle Partys liegen nur im Arbeitsspeicher des Servers. Ein Neustart beendet alle laufenden Partys, und die Anwendung darf nur als einzelne Instanz laufen.
+- Gegen Missbrauch sind die Anzahl gleichzeitiger Partys pro Netzwerk (IPv4-Adresse bzw. IPv6-/64) und insgesamt begrenzt. Die Videodaten einer Party löst der Server selbst anhand der Filmliste auf, so dass ein Host den Gästen keine fremden Adressen unterschieben kann.
