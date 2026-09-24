@@ -24,10 +24,10 @@
     <p class="mb-4">Diese Website verwendet Cookies für die Darstellung von Werbung. Hierbei werden Daten an Google übertragen.</p>
     <p class="mb-4">
       Nähere Informationen dazu finden Sie in unserer
-      <button type="button" class="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 underline font-medium" onclick={showDatenschutz}>Datenschutzerklärung</button>. Klicken Sie auf „Akzeptieren“, um Cookies zu akzeptieren und direkt unsere Website besuchen zu können.
+      <button type="button" class="text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-300 underline font-medium" onclick={showDatenschutz}>Datenschutzerklärung</button>. Klicken Sie auf „Akzeptieren“, um Cookies zu akzeptieren und direkt unsere Website besuchen zu können.
     </p>
     <p class="mb-6">
-      <button type="button" class="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 underline font-medium" onclick={showImpressum}>Impressum aufrufen</button>
+      <button type="button" class="text-purple-600 dark:text-purple-400 hover:text-purple-500 dark:hover:text-purple-300 underline font-medium" onclick={showImpressum}>Impressum aufrufen</button>
     </p>
     <div class="mb-8 p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
       Sollten Sie mit den Werbe-Cookies nicht einverstanden sein, bitten wir Sie über eine

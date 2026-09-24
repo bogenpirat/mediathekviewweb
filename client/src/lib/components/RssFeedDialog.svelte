@@ -93,11 +93,11 @@
   }
 
   .quality-option.active {
-    @apply bg-blue-600 text-white dark:bg-blue-600 dark:text-white;
+    @apply bg-purple-600 text-white dark:bg-purple-600 dark:text-white;
   }
 
   .url-input {
-    @apply flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0;
+    @apply flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-0;
   }
 
   .copy-btn {
@@ -105,6 +105,6 @@
   }
 
   .open-btn {
-    @apply w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 px-4 rounded-lg transition-colors cursor-pointer;
+    @apply w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white font-medium py-2.5 px-4 rounded-lg transition-colors cursor-pointer;
   }
 </style>

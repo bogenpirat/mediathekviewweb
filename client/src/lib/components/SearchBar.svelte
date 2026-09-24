@@ -87,7 +87,7 @@
   }
 
   .search-input {
-    @apply w-full rounded-md border border-gray-300 bg-gray-50 py-2 pl-10 pr-10 text-gray-900 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-300 dark:focus:ring-blue-500;
+    @apply w-full rounded-md border border-gray-300 bg-gray-50 py-2 pl-10 pr-10 text-gray-900 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-300 dark:focus:ring-purple-500;
 
     &::-webkit-search-cancel-button {
       display: none;

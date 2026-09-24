@@ -62,7 +62,7 @@
   }
 
   .pagination-link.active {
-    @apply cursor-default bg-blue-600 font-bold text-white;
+    @apply cursor-default bg-purple-600 font-bold text-white;
   }
 
   .pagination-link:disabled {
