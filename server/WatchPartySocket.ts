@@ -32,35 +32,83 @@ function isFiniteNumber(value: unknown): value is number {
   return (typeof value == 'number') && Number.isFinite(value);
 }
 
+/** Looks an entry up in the index by id; null when it does not exist. */
+export type LookupEntry = (id: string) => Promise<Record<string, any> | null>;
+
+type VideoQuality = 'HD' | 'SD' | 'LQ';
+
+const urlFieldByQuality: Record<VideoQuality, string> = {
+  HD: 'url_video_hd',
+  SD: 'url_video',
+  LQ: 'url_video_low'
+};
+
+function isVideoQuality(value: unknown): value is VideoQuality {
+  return (typeof value == 'string') && Object.hasOwn(urlFieldByQuality, value);
+}
+
+function optionalText(value: unknown): string | undefined {
+  return ((typeof value == 'string') && (value.length > 0)) ? value : undefined;
+}
+
 /**
- * Validates and normalises a video descriptor coming from the host. Everything here is echoed to
- * other clients, so unknown fields are dropped and strings are length capped rather than trusted.
+ * Turns the host's `{ id, quality }` choice into the video guests are sent. Everything guests load
+ * or render comes from the index, never from the host, so a host cannot point guests' players or
+ * links at an address of its own choosing.
  */
-function parseVideo(value: unknown): PartyVideo | null {
-  if ((value == null) || (typeof value != 'object')) {
-    return null;
-  }
+async function resolveVideo(lookupEntry: LookupEntry, id: string, quality: VideoQuality): Promise<PartyVideo | null> {
+  const entry = await lookupEntry(id);
+  const url = entry?.[urlFieldByQuality[quality]];
 
-  const raw = value as Record<string, unknown>;
-  const text = (key: string, maxLength = 500): string => (typeof raw[key] == 'string') ? (raw[key] as string).slice(0, maxLength) : '';
-
-  const url = text('url', 2000);
-  const id = text('id', 100);
-
-  if ((url.length == 0) || (id.length == 0)) {
+  if ((typeof url != 'string') || (url.length == 0)) {
     return null;
   }
 
   return {
     id,
-    channel: text('channel', 100),
-    topic: text('topic'),
-    title: text('title'),
+    channel: String(entry!['channel'] ?? ''),
+    topic: String(entry!['topic'] ?? ''),
+    title: String(entry!['title'] ?? ''),
     url,
-    quality: text('quality', 10),
-    url_website: text('url_website', 2000) || undefined,
-    url_subtitle: text('url_subtitle', 2000) || undefined
+    quality,
+    url_website: optionalText(entry!['url_website']),
+    url_subtitle: optionalText(entry!['url_subtitle'])
   };
+}
+
+/**
+ * Parses the video part of a `host-state` message: null to clear the video, a video to switch to,
+ * or undefined when the reference is malformed or unknown and the message must be dropped.
+ */
+async function parseHostVideo(registry: WatchPartyRegistry, lookupEntry: LookupEntry, member: Member, value: unknown): Promise<PartyVideo | null | undefined> {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value != 'object') {
+    return undefined;
+  }
+
+  const { id, quality } = value as Record<string, unknown>;
+
+  if ((typeof id != 'string') || (id.length == 0) || (id.length > 100) || !isVideoQuality(quality)) {
+    return undefined;
+  }
+
+  // Play, pause and seek all repeat the current video, so only a new episode needs the index.
+  const current = registry.currentVideo(member);
+
+  if ((current?.id == id) && (current.quality == quality)) {
+    return current;
+  }
+
+  try {
+    return (await resolveVideo(lookupEntry, id, quality)) ?? undefined;
+  }
+  catch (error) {
+    console.error('watch party: failed to resolve video', error);
+    return undefined;
+  }
 }
 
 function withinRateLimit(socket: Socket): boolean {
@@ -76,7 +124,7 @@ function withinRateLimit(socket: Socket): boolean {
   return socket.messageCredits! >= 0;
 }
 
-function handleMessage(registry: WatchPartyRegistry, member: Member, raw: string): void {
+async function handleMessage(registry: WatchPartyRegistry, lookupEntry: LookupEntry, member: Member, raw: string): Promise<void> {
   let message: Record<string, unknown>;
 
   try {
@@ -109,7 +157,13 @@ function handleMessage(registry: WatchPartyRegistry, member: Member, raw: string
         return;
       }
 
-      registry.setHostState(member, { video: parseVideo(message['video']), position: message['position'], paused: message['paused'] });
+      const video = await parseHostVideo(registry, lookupEntry, member, message['video']);
+
+      if (video === undefined) {
+        return;
+      }
+
+      registry.setHostState(member, { video, position: message['position'], paused: message['paused'] });
 
       return;
     }
@@ -145,7 +199,7 @@ function handleMessage(registry: WatchPartyRegistry, member: Member, raw: string
  * `app.listen()` already returns an `http.Server`, so no restructuring of the Express setup is
  * needed - we just claim the upgrade requests for our own path and let everything else drop.
  */
-export function attachWatchPartySocket(httpServer: http.Server, registry: WatchPartyRegistry): void {
+export function attachWatchPartySocket(httpServer: http.Server, registry: WatchPartyRegistry, lookupEntry: LookupEntry): void {
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
 
   httpServer.on('upgrade', (request, socket, head) => {
@@ -196,13 +250,18 @@ export function attachWatchPartySocket(httpServer: http.Server, registry: WatchP
         partySocket.isAlive = true;
       });
 
+      // Resolving a new video awaits the index, so messages are chained to keep their order: a
+      // pause sent right after an episode change must not be overtaken by it.
+      let processing = Promise.resolve();
+
       partySocket.on('message', (data) => {
         if (!withinRateLimit(partySocket)) {
           partySocket.close(CLOSE_CODE_PARTY_CLOSED, 'rate-limit');
           return;
         }
 
-        handleMessage(registry, member, data.toString());
+        const raw = data.toString();
+        processing = processing.then(() => handleMessage(registry, lookupEntry, member, raw)).catch((error) => console.error('watch party: failed to handle message', error));
       });
 
       partySocket.on('close', () => registry.detach(member));

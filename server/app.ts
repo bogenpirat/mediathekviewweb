@@ -199,6 +199,11 @@ ${partyStats}`);
     const created = watchPartyRegistry.createParty(hostIp);
 
     if ('error' in created) {
+      if (created.error == 'network-limit') {
+        res.status(429).json({ error: 'too many active parties from your network, end one first', party: null });
+        return;
+      }
+
       res.status(503).json({ error: 'too many active parties, try again later', party: null });
       return;
     }
@@ -406,7 +411,7 @@ ${partyStats}`);
   });
 
   if (config.watchParty) {
-    attachWatchPartySocket(httpServer, watchPartyRegistry);
+    attachWatchPartySocket(httpServer, watchPartyRegistry, (id) => searchEngine.getEntry(id));
     console.log('watch party socket listening on ' + WATCH_PARTY_PATH);
   }
 

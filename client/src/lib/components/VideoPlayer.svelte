@@ -5,7 +5,7 @@
 
   import type { VideoPayload } from '$lib/types';
   import { trackEvent, withBase } from '$lib/utils';
-  import { DRIFT_THRESHOLD_SECONDS, videoPayloadToPartyVideo, watchParty } from '$lib/watchParty.svelte';
+  import { DRIFT_THRESHOLD_SECONDS, watchParty } from '$lib/watchParty.svelte';
   import ChannelTag from './ChannelTag.svelte';
   import Icon from './Icon.svelte';
   import WatchPartyIndicator from './WatchPartyIndicator.svelte';
@@ -37,7 +37,7 @@
       return;
     }
 
-    watchParty.publishHostState(videoPayloadToPartyVideo(videoPayload), Number(player.currentTime()) || 0, player.paused());
+    watchParty.publishHostState(videoPayload, Number(player.currentTime()) || 0, player.paused());
   }
 
   /**

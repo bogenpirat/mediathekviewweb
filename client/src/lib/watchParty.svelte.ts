@@ -1,4 +1,4 @@
-import type { PartyRole, PartyVideo, VideoPayload } from './types';
+import type { PartyRole, PartyVideo, VideoPayload, VideoQuality } from './types';
 import { trackEvent, withBase } from './utils';
 
 /** Clients further from the host than this are shown as out of sync. Matches the server value. */
@@ -13,11 +13,10 @@ const RECONNECT_MAX_DELAY_MS = 15000;
 const HOST_TOKEN_STORAGE_PREFIX = 'watchPartyHostToken:';
 const MEMBER_TOKEN_STORAGE_PREFIX = 'watchPartyMemberToken:';
 
-export type PartyCloseReason = 'host-left' | 'superseded' | 'expired' | 'not-found' | 'full' | 'disabled' | 'invite-required' | 'invite-invalid';
+export type PartyCloseReason = 'host-left' | 'expired' | 'not-found' | 'full' | 'disabled' | 'invite-required' | 'invite-invalid';
 
 const closeReasonMessages: Record<PartyCloseReason, string> = {
   'host-left': 'Der Host hat die Party beendet.',
-  superseded: 'Die Party wurde durch eine neue Party ersetzt.',
   expired: 'Die Party ist abgelaufen.',
   'not-found': 'Diese Party existiert nicht mehr.',
   full: 'Diese Party ist voll.',
@@ -357,6 +356,11 @@ function createWatchParty() {
           return false;
         }
 
+        // Hosting again replaces this tab's party; end the old one rather than orphan its guests.
+        if (role === 'host') {
+          send({ type: 'end-party' });
+        }
+
         teardown({ keepNotice: false });
 
         writeToken(HOST_TOKEN_STORAGE_PREFIX, data.party.partyId, data.party.hostToken);
@@ -443,13 +447,16 @@ function createWatchParty() {
       }
     },
 
-    /** Host only: publish the authoritative state after a play, pause, seek or episode change. */
-    publishHostState(video: PartyVideo | null, position: number, paused: boolean): void {
+    /**
+     * Host only: publish the authoritative state after a play, pause, seek or episode change. The
+     * video goes out as a reference only; the server looks up what guests are sent.
+     */
+    publishHostState(video: { id: string; quality: VideoQuality } | null, position: number, paused: boolean): void {
       if (role !== 'host') {
         return;
       }
 
-      send({ type: 'host-state', video, position, paused });
+      send({ type: 'host-state', video: video && { id: video.id, quality: video.quality }, position, paused });
     },
 
     /** Guest only: ask the server to put this client back onto the host's position. */
@@ -474,19 +481,6 @@ function createWatchParty() {
 
       teardown({ keepNotice: false });
     },
-  };
-}
-
-export function videoPayloadToPartyVideo(payload: VideoPayload): PartyVideo {
-  return {
-    id: payload.id,
-    channel: payload.channel,
-    topic: payload.topic,
-    title: payload.title,
-    url: payload.url,
-    quality: payload.quality,
-    url_website: payload.url_website,
-    url_subtitle: payload.url_subtitle,
   };
 }
 

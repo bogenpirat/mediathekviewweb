@@ -89,7 +89,14 @@ export class SearchEngine {
   async getEntry(id: string): Promise<Record<string, any> | null> {
     try {
       const response = await this.client.get({ index: OPENSEARCH_INDEX, id });
-      return (response.body._source as Record<string, any>) ?? null;
+      const entry = (response.body._source as Record<string, any>) ?? null;
+
+      // Same URLs as search results, so a watch party resolves the video the host picked there.
+      if (entry != null) {
+        mapToMp4IfM3u8(entry);
+      }
+
+      return entry;
     }
     catch (error) {
       if (error.statusCode == 404) {
