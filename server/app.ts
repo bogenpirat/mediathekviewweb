@@ -9,15 +9,9 @@ import moment from 'moment';
 import { MediathekManager } from './MediathekManager';
 import { RSSFeedGenerator } from './RSSFeedGenerator';
 import { SearchEngine } from './SearchEngine';
-import { SubtitleConversionError, toWebVtt } from './SubtitleConverter';
 import { getValkeyClient, initializeValkey } from './ValKey';
 import { config } from './config';
 import { VALKEY_KEYS } from './keys';
-
-const VALKEY_SUBTITLE_CACHE = 'mvw:subtitleCache';
-
-/** Subtitles above this size are served but not cached, to keep the Valkey hash bounded. */
-const MAX_CACHED_SUBTITLE_BYTES = 512 * 1024;
 
 (async () => {
   await initializeValkey();
@@ -176,63 +170,6 @@ const MAX_CACHED_SUBTITLE_BYTES = 512 * 1024;
     }
     catch (error) {
       res.send('-1');
-    }
-  });
-
-  app.get('/api/subtitle', async (req, res) => {
-    // Addressed by entry id rather than by URL on purpose: resolving the subtitle URL from the
-    // index keeps this from becoming an open GET proxy.
-    const id = req.query.id as string;
-
-    res.header('Access-Control-Allow-Origin', '*');
-
-    if (!id) {
-      res.status(400).send('id parameter is missing');
-      return;
-    }
-
-    try {
-      const cached = await valkey.hget(VALKEY_SUBTITLE_CACHE, id);
-
-      if (cached != null) {
-        if (cached.length == 0) {
-          res.status(404).send('no usable subtitle for this entry');
-          return;
-        }
-
-        res.type('text/vtt; charset=utf-8').send(cached.toString());
-        return;
-      }
-
-      const entry = await searchEngine.getEntry(id);
-      // SR lists its subtitles as protocol-relative URLs (`//www.sr-mediathek.de/...`).
-      const subtitleUrl = (entry?.url_subtitle as string | undefined)?.replace(/^\/\//, 'https://');
-
-      if (!subtitleUrl) {
-        await valkey.hset(VALKEY_SUBTITLE_CACHE, { [id]: '' });
-        res.status(404).send('entry has no subtitle');
-        return;
-      }
-
-      const response = await got.get(subtitleUrl, { timeout: { request: 15000 }, retry: { limit: 1 } });
-      const webVtt = toWebVtt(response.body, { videoDuration: entry!.duration });
-
-      res.type('text/vtt; charset=utf-8').send(webVtt);
-
-      if (webVtt.length <= MAX_CACHED_SUBTITLE_BYTES) {
-        await valkey.hset(VALKEY_SUBTITLE_CACHE, { [id]: webVtt });
-      }
-    }
-    catch (error) {
-      if (error instanceof SubtitleConversionError) {
-        // Unconvertible subtitles are cached as a negative result so we do not refetch them.
-        await valkey.hset(VALKEY_SUBTITLE_CACHE, { [id]: '' }).catch(() => undefined);
-        res.status(404).send(error.message);
-        return;
-      }
-
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      res.status(502).send(errorMessage);
     }
   });
 
