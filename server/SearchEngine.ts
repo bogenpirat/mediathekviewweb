@@ -86,6 +86,20 @@ export class SearchEngine {
     }
   }
 
+  async getEntry(id: string): Promise<Record<string, any> | null> {
+    try {
+      const response = await this.client.get({ index: OPENSEARCH_INDEX, id });
+      return (response.body._source as Record<string, any>) ?? null;
+    }
+    catch (error) {
+      if (error.statusCode == 404) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
   async getEntries(ids: string[]): Promise<object[]> {
     const response = await this.client.mget({ index: OPENSEARCH_INDEX, body: { ids } });
 

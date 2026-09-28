@@ -82,6 +82,7 @@
     }
 
     onPlayVideo({
+      id: entry.id,
       channel: entry.channel,
       topic: entry.topic,
       title: entry.title,

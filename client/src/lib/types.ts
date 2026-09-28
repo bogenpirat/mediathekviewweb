@@ -49,6 +49,8 @@ export type QueryResult = {
 };
 
 export type VideoPayload = {
+  /** OpenSearch id of the entry, used to resolve captions via /api/subtitle. */
+  id: string;
   channel: string;
   topic: string;
   title: string;

@@ -192,7 +192,8 @@
         <!-- svelte-ignore a11y_media_has_caption -->
         <video-js bind:this={videoElement} class="vjs-big-play-centered w-full rounded-lg overflow-clip">
           {#if videoPayload.url_subtitle}
-            <track kind="captions" src={videoPayload.url_subtitle} default />
+            <!-- Served via /api/subtitle: broadcaster files are usually TTML on a foreign origin, which the player can neither fetch nor parse. -->
+            <track kind="captions" src={`/api/subtitle?id=${encodeURIComponent(videoPayload.id)}`} srclang="de" label="Untertitel" default />
           {/if}
         </video-js>
       {/key}
