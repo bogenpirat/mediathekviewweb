@@ -272,6 +272,9 @@
 
       // --- captions -------------------------------------------------------------------------
       // Captions stay off unless the user asked for them, and that choice carries to the next video.
+      // Turning them on is left to the <track default> attribute below: setting `mode` from an
+      // `addtrack` handler runs before Video.js subscribes to the track's mode changes, so its
+      // caption display never learns about the track and only redraws on unrelated player events.
       const textTracks = p.textTracks();
 
       // The list is index accessible at runtime, but its type carries no index signature.
@@ -290,20 +293,10 @@
         return tracks;
       }
 
-      function applyCaptionsPreference() {
-        const enabled = readCaptionsPreference();
-
-        for (const track of captionTracks()) {
-          track.mode = enabled ? 'showing' : 'disabled';
-        }
-      }
-
       function persistCaptionsPreference() {
         writeCaptionsPreference(captionTracks().some((track) => track.mode === 'showing'));
       }
 
-      p.one('loadedmetadata', applyCaptionsPreference);
-      textTracks.addEventListener('addtrack', applyCaptionsPreference);
       textTracks.addEventListener('change', persistCaptionsPreference);
 
       // --- watch party sync -----------------------------------------------------------------
@@ -350,7 +343,6 @@
 
       return () => {
         unbindParty();
-        textTracks.removeEventListener('addtrack', applyCaptionsPreference);
         textTracks.removeEventListener('change', persistCaptionsPreference);
 
         if (p && !p.isDisposed()) {
@@ -391,7 +383,7 @@
         <video-js bind:this={videoElement} class="vjs-big-play-centered w-full rounded-lg overflow-clip">
           {#if videoPayload.id && videoPayload.url_subtitle}
             <!-- Served via /api/subtitle: broadcaster files are usually TTML, which browsers reject. -->
-            <track kind="captions" src={withBase(`/api/subtitle?id=${encodeURIComponent(videoPayload.id)}`)} srclang="de" label="Untertitel" />
+            <track kind="captions" default={readCaptionsPreference()} src={withBase(`/api/subtitle?id=${encodeURIComponent(videoPayload.id)}`)} srclang="de" label="Untertitel" />
           {/if}
         </video-js>
       {/key}
