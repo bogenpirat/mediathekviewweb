@@ -16,17 +16,29 @@ const SRT_TIMECODE = /(\d{1,3}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,3}):(
 
 const DEFAULT_FRAME_RATE = 25;
 
+/** Broadcast-escaped line breaks, e.g. ORF writes `&lt;br/&gt;` into the text instead of a <br/> element. */
+const ESCAPED_LINE_BREAK = /<br\s*\/?>/gi;
+
+/** How far the last cue may run past the end of the video before its timing is considered off. */
+const DURATION_TOLERANCE_SECONDS = 60;
+
 type Cue = { start: number, end: number, text: string };
 
 export class SubtitleConversionError extends Error { }
 
+export type ToWebVttOptions = {
+  /** Duration of the video in seconds, used to tell a timecode offset apart from a long programme. */
+  videoDuration?: number
+};
+
 /** Formats seconds as the `HH:MM:SS.mmm` timestamp WebVTT expects. */
 function formatTimestamp(totalSeconds: number): string {
-  const clamped = Math.max(0, totalSeconds);
-  const hours = Math.floor(clamped / 3600);
-  const minutes = Math.floor((clamped % 3600) / 60);
-  const seconds = Math.floor(clamped % 60);
-  const milliseconds = Math.round((clamped - Math.floor(clamped)) * 1000);
+  // Rounded once up front so a value like 2.9996 becomes 3.000 rather than 2.1000.
+  const totalMilliseconds = Math.round(Math.max(0, totalSeconds) * 1000);
+  const hours = Math.floor(totalMilliseconds / 3600000);
+  const minutes = Math.floor((totalMilliseconds % 3600000) / 60000);
+  const seconds = Math.floor((totalMilliseconds % 60000) / 1000);
+  const milliseconds = totalMilliseconds % 1000;
 
   const pad = (value: number, length = 2) => value.toString().padStart(length, '0');
 
@@ -127,7 +139,7 @@ function collectText(nodes: OrderedNode[], parts: string[]): void {
     }
 
     if (tagName == '#text') {
-      parts.push(String(node['#text'] ?? ''));
+      parts.push(String(node['#text'] ?? '').replace(ESCAPED_LINE_BREAK, '\n'));
       continue;
     }
 
@@ -154,6 +166,41 @@ function sanitizeCueText(text: string): string {
     .trim();
 }
 
+/**
+ * Removes a broadcast timecode offset.
+ *
+ * Studio subtitle files follow the SMPTE convention of starting the programme at 10:00:00:00 rather
+ * than at zero, and several ARD broadcasters (SR, ARD-alpha, and some BR and HR programmes) publish
+ * them unchanged. Played against a video starting at zero, such cues would first appear ten hours
+ * in - that is, never. The offset is rounded to whole hours so pre-roll cues from 09:59:xx still
+ * resolve to a 10 h offset, and it is only removed when the cues would otherwise overrun the video.
+ */
+function removeTimecodeOffset(cues: Cue[], videoDuration: number | undefined): Cue[] {
+  if (cues.length == 0) {
+    return cues;
+  }
+
+  const earliestStart = Math.min(...cues.map((cue) => cue.start));
+  const latestEnd = Math.max(...cues.map((cue) => cue.end));
+  const offsetHours = Math.round(earliestStart / 3600);
+
+  if (offsetHours < 1) {
+    return cues;
+  }
+
+  const fitsVideo = (videoDuration != undefined) && (videoDuration > 0) && (latestEnd <= videoDuration + DURATION_TOLERANCE_SECONDS);
+
+  if (fitsVideo) {
+    return cues;
+  }
+
+  const offset = offsetHours * 3600;
+
+  return cues
+    .map((cue) => ({ ...cue, start: Math.max(0, cue.start - offset), end: cue.end - offset }))
+    .filter((cue) => cue.end > 0);
+}
+
 function cuesToWebVtt(cues: Cue[]): string {
   const blocks = cues
     .filter((cue) => (cue.text.length > 0) && (cue.end > cue.start))
@@ -166,7 +213,7 @@ function cuesToWebVtt(cues: Cue[]): string {
   return `WEBVTT\n\n${blocks.join('\n\n')}\n`;
 }
 
-function convertTtml(body: string): string {
+function parseTtml(body: string): Cue[] {
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
@@ -243,10 +290,10 @@ function convertTtml(body: string): string {
     cues.push({ start, end: stop, text: sanitizeCueText(parts.join('')) });
   }
 
-  return cuesToWebVtt(cues);
+  return cues;
 }
 
-function convertSrt(body: string): string {
+function parseSrt(body: string): Cue[] {
   const cues: Cue[] = [];
 
   for (const block of body.replace(/\r\n/g, '\n').split(/\n{2,}/)) {
@@ -273,7 +320,7 @@ function convertSrt(body: string): string {
     });
   }
 
-  return cuesToWebVtt(cues);
+  return cues;
 }
 
 /** Normalises an already-WebVTT file: strip a BOM and make sure the magic header is present. */
@@ -288,7 +335,7 @@ function normalizeWebVtt(body: string): string {
  *
  * @throws {SubtitleConversionError} when the format is unrecognised or yields no usable cues.
  */
-export function toWebVtt(body: string): string {
+export function toWebVtt(body: string, options: ToWebVttOptions = {}): string {
   const sample = body.replace(/^﻿/, '').trimStart();
 
   if (sample.length == 0) {
@@ -299,13 +346,17 @@ export function toWebVtt(body: string): string {
     return normalizeWebVtt(body);
   }
 
+  let cues: Cue[];
+
   if (sample.startsWith('<')) {
-    return convertTtml(sample);
+    cues = parseTtml(sample);
+  }
+  else if (SRT_TIMECODE.test(sample)) {
+    cues = parseSrt(sample);
+  }
+  else {
+    throw new SubtitleConversionError('unrecognized subtitle format');
   }
 
-  if (SRT_TIMECODE.test(sample)) {
-    return convertSrt(sample);
-  }
-
-  throw new SubtitleConversionError('unrecognized subtitle format');
+  return cuesToWebVtt(removeTimecodeOffset(cues, options.videoDuration));
 }

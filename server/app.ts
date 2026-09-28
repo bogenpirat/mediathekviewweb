@@ -16,7 +16,9 @@ import { attachWatchPartySocket, WATCH_PARTY_PATH } from './WatchPartySocket';
 import { config } from './config';
 import { VALKEY_KEYS } from './keys';
 
-const VALKEY_SUBTITLE_CACHE = 'mvw:subtitleCache';
+// Versioned so that a change to the conversion invalidates previously cached results.
+const VALKEY_SUBTITLE_CACHE = 'mvw:subtitleCache:v2';
+const LEGACY_VALKEY_SUBTITLE_CACHES = ['mvw:subtitleCache'];
 
 /** Subtitles above this size are served but not cached, to keep the Valkey hash bounded. */
 const MAX_CACHED_SUBTITLE_BYTES = 512 * 1024;
@@ -54,6 +56,8 @@ const MAX_CACHED_SUBTITLE_BYTES = 512 * 1024;
 
   let filmlisteTimestamp = await mediathekManager.getCurrentFilmlisteTimestamp();
   let totalEntries = await valkey.scard(VALKEY_KEYS.CURRENT_FILMLISTE);
+
+  await valkey.del(LEGACY_VALKEY_SUBTITLE_CACHES);
 
   mediathekManager.on('state', (state) => {
     if (state == null) {
@@ -269,7 +273,8 @@ ${partyStats}`);
       }
 
       const entry = await searchEngine.getEntry(id);
-      const subtitleUrl = entry?.url_subtitle;
+      // SR lists its subtitles as protocol-relative URLs (`//www.sr-mediathek.de/...`).
+      const subtitleUrl = (entry?.url_subtitle as string | undefined)?.replace(/^\/\//, 'https://');
 
       if (!subtitleUrl) {
         await valkey.hset(VALKEY_SUBTITLE_CACHE, { [id]: '' });
@@ -278,7 +283,7 @@ ${partyStats}`);
       }
 
       const response = await got.get(subtitleUrl, { timeout: { request: 15000 }, retry: { limit: 1 } });
-      const webVtt = toWebVtt(response.body);
+      const webVtt = toWebVtt(response.body, { videoDuration: entry!.duration });
 
       res.type('text/vtt; charset=utf-8').send(webVtt);
 
