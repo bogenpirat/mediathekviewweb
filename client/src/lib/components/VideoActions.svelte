@@ -65,30 +65,29 @@
     }
   });
 
-  async function play(event: MouseEvent, quality: VideoQuality, url: string) {
+  async function play(event: MouseEvent, quality: VideoQuality, url: string, asPartyHost = false) {
     event.stopPropagation();
 
     if (isLongPress()) {
       return;
     }
 
-    trackEvent('Play Video', {
-      channel: entry.channel,
-      topic: entry.topic,
-      title: entry.title,
-      quality,
-    });
+    if (!asPartyHost) {
+      trackEvent('Play Video', {
+        channel: entry.channel,
+        topic: entry.topic,
+        title: entry.title,
+        quality,
+      });
+    }
 
     if (url.startsWith('http://')) {
       await playVideoInNewWindow(url, !watchParty.active);
       return;
     }
 
-    onPlayVideo(buildPayload(quality, url));
-  }
-
-  function buildPayload(quality: VideoQuality, url: string): VideoPayload {
-    return {
+    // Hosting a party opens the same payload, just through the party instead of the local player.
+    (asPartyHost ? onHostParty : onPlayVideo)({
       id: entry.id,
       channel: entry.channel,
       topic: entry.topic,
@@ -97,17 +96,12 @@
       url,
       url_website: entry.url_website,
       url_subtitle: entry.url_subtitle,
-    };
+      duration: entry.duration,
+    });
   }
 
-  async function hostParty(event: MouseEvent, quality: VideoQuality, url: string) {
-    event.stopPropagation();
-
-    if (isLongPress()) {
-      return;
-    }
-
-    onHostParty(buildPayload(quality, url));
+  function hostParty(event: MouseEvent, quality: VideoQuality, url: string) {
+    return play(event, quality, url, true);
   }
 
   function trackDownload(quality: VideoQuality) {

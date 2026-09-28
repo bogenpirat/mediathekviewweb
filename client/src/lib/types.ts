@@ -48,18 +48,6 @@ export type QueryResult = {
   },
 };
 
-export type VideoPayload = {
-  /** OpenSearch id of the entry, used to resolve captions via /api/subtitle. */
-  id: string;
-  channel: string;
-  topic: string;
-  title: string;
-  url: string;
-  quality: VideoQuality;
-  url_website?: string;
-  url_subtitle?: string;
-};
-
 export type PartyRole = 'host' | 'guest';
 
 /** The video a watch party is currently sharing, as relayed by the server. */
@@ -72,4 +60,18 @@ export type PartyVideo = {
   quality: string;
   url_website?: string;
   url_subtitle?: string;
+};
+
+export type VideoPayload = {
+  /** OpenSearch id of the entry, identifying the video in a watch party. */
+  id: string;
+  channel: string;
+  topic: string;
+  title: string;
+  url: string;
+  quality: VideoQuality;
+  url_website?: string;
+  url_subtitle?: string;
+  /** Length of the video in seconds, used to correct subtitle timecode offsets. */
+  duration?: number;
 };

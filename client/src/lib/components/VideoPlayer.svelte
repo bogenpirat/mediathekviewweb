@@ -3,8 +3,9 @@
   import videojs from 'video.js';
   import type Player from 'video.js/dist/types/player';
 
+  import { loadSubtitleAsWebVtt } from '$lib/subtitles';
   import type { VideoPayload } from '$lib/types';
-  import { trackEvent, withBase } from '$lib/utils';
+  import { trackEvent } from '$lib/utils';
   import { DRIFT_THRESHOLD_SECONDS, watchParty } from '$lib/watchParty.svelte';
   import ChannelTag from './ChannelTag.svelte';
   import Icon from './Icon.svelte';
@@ -257,8 +258,6 @@
 
       player = p;
 
-      p.src({ src: payload.url, type: payload.url.endsWith('m3u8') ? 'application/x-mpegURL' : undefined });
-
       // --- volume ---------------------------------------------------------------------------
       // Like captions, the volume the user last settled on carries to the next video and the next visit.
       const storedVolume = readVolumePreference();
@@ -272,9 +271,6 @@
 
       // --- captions -------------------------------------------------------------------------
       // Captions stay off unless the user asked for them, and that choice carries to the next video.
-      // Turning them on is left to the <track default> attribute below: setting `mode` from an
-      // `addtrack` handler runs before Video.js subscribes to the track's mode changes, so its
-      // caption display never learns about the track and only redraws on unrelated player events.
       const textTracks = p.textTracks();
 
       // The list is index accessible at runtime, but its type carries no index signature.
@@ -293,10 +289,25 @@
         return tracks;
       }
 
+      // The subtitle track below switches itself on once its file is loaded; this overrides that
+      // with the user's choice. Deferred to a microtask because a mode set while `addtrack` is
+      // still being dispatched goes unnoticed by Video.js's caption display, which then only
+      // redraws on unrelated player events.
+      function applyCaptionsPreference(event: Event) {
+        const track = (event as Event & { track?: TextTrack }).track;
+
+        if (track && (track.kind === 'captions' || track.kind === 'subtitles')) {
+          queueMicrotask(() => {
+            track.mode = readCaptionsPreference() ? 'showing' : 'disabled';
+          });
+        }
+      }
+
       function persistCaptionsPreference() {
         writeCaptionsPreference(captionTracks().some((track) => track.mode === 'showing'));
       }
 
+      textTracks.addEventListener('addtrack', applyCaptionsPreference);
       textTracks.addEventListener('change', persistCaptionsPreference);
 
       // --- watch party sync -----------------------------------------------------------------
@@ -341,13 +352,49 @@
         },
       });
 
+      p.src({ src: videoPayload.url, type: videoPayload.url.endsWith('m3u8') ? 'application/x-mpegURL' : undefined });
+
+      // Broadcaster subtitles are mostly TTML, which the player cannot read, so they are converted
+      // to WebVTT here and handed to the player as an object URL once ready.
+      const subtitleRequest = new AbortController();
+      let subtitleObjectUrl: string | null = null;
+
+      if (videoPayload.url_subtitle) {
+        loadSubtitleAsWebVtt(videoPayload.url_subtitle, videoPayload.duration, subtitleRequest.signal)
+          .then((objectUrl) => {
+            if (p.isDisposed()) {
+              URL.revokeObjectURL(objectUrl);
+              return;
+            }
+
+            subtitleObjectUrl = objectUrl;
+
+            // Video.js returns its own track element class, whose typings omit the `track` getter.
+            const trackElement = p.addRemoteTextTrack({ kind: 'captions', src: objectUrl, srclang: 'de', label: 'Untertitel', default: true }, true) as unknown as HTMLTrackElement;
+            // `default` only takes effect for tracks present when the player starts, so switch it on
+            // explicitly. This has to happen after addRemoteTextTrack returns: Video.js only redraws
+            // captions for tracks whose mode changes once it is already listening to them.
+            trackElement.track.mode = 'showing';
+          })
+          .catch(() => {
+            // Playback works without captions. Expected for ORF, which rejects cross-origin requests.
+          });
+      }
+
       return () => {
-        unbindParty();
-        textTracks.removeEventListener('change', persistCaptionsPreference);
+        subtitleRequest.abort();
+
+        if (subtitleObjectUrl) {
+          URL.revokeObjectURL(subtitleObjectUrl);
+        }
 
         if (p && !p.isDisposed()) {
           p.dispose();
         }
+
+        unbindParty();
+        textTracks.removeEventListener('addtrack', applyCaptionsPreference);
+        textTracks.removeEventListener('change', persistCaptionsPreference);
 
         player = null;
       };
@@ -381,10 +428,6 @@
       {#key videoPayload.url}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video-js bind:this={videoElement} class="vjs-big-play-centered w-full rounded-lg overflow-clip">
-          {#if videoPayload.id && videoPayload.url_subtitle}
-            <!-- Served via /api/subtitle: broadcaster files are usually TTML, which browsers reject. -->
-            <track kind="captions" default={readCaptionsPreference()} src={withBase(`/api/subtitle?id=${encodeURIComponent(videoPayload.id)}`)} srclang="de" label="Untertitel" />
-          {/if}
         </video-js>
       {/key}
     </div>
